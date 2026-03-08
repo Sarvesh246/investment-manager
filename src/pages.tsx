@@ -29,6 +29,7 @@ import type {
   ActionLabel,
   AlertItem,
   PlannerInputs,
+  PortfolioHistorySnapshot,
   PortfolioHistoryStore,
   SymbolDirectoryEntry,
 } from './domain/types';
@@ -304,6 +305,69 @@ function dayKey(date: Date) {
   ).padStart(2, '0')}`;
 }
 
+function valueRatio(left: number, right: number) {
+  const absoluteLeft = Math.abs(left);
+  const absoluteRight = Math.abs(right);
+  const smaller = Math.min(absoluteLeft, absoluteRight);
+  const larger = Math.max(absoluteLeft, absoluteRight);
+
+  if (larger === 0) {
+    return 1;
+  }
+
+  if (smaller === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return larger / smaller;
+}
+
+function isCompatibleHistoryStep(
+  earlier: PortfolioHistorySnapshot,
+  later: PortfolioHistorySnapshot,
+) {
+  const timeGapMs =
+    new Date(later.timestamp).getTime() - new Date(earlier.timestamp).getTime();
+  const shortGap = timeGapMs <= 7 * 24 * 60 * 60 * 1000;
+  const portfolioRatio = valueRatio(earlier.portfolioValue, later.portfolioValue);
+  const costBasisRatio = valueRatio(earlier.costBasisValue, later.costBasisValue);
+  const holdingCountDiff = Math.abs(earlier.holdingCount - later.holdingCount);
+  const cashGap = Math.abs(earlier.cashValue - later.cashValue);
+
+  if (shortGap && costBasisRatio > 2.5 && holdingCountDiff >= 2) {
+    return false;
+  }
+
+  if (shortGap && portfolioRatio > 3.5 && holdingCountDiff >= 2) {
+    return false;
+  }
+
+  if (shortGap && portfolioRatio > 5 && cashGap > 5_000) {
+    return false;
+  }
+
+  return true;
+}
+
+function selectCoherentHistorySnapshots(snapshots: PortfolioHistorySnapshot[]) {
+  if (snapshots.length <= 1) {
+    return snapshots;
+  }
+
+  const coherent = [snapshots.at(-1)!];
+
+  for (let index = snapshots.length - 2; index >= 0; index -= 1) {
+    const snapshot = snapshots[index];
+    const anchor = coherent[0];
+
+    if (isCompatibleHistoryStep(snapshot, anchor)) {
+      coherent.unshift(snapshot);
+    }
+  }
+
+  return coherent;
+}
+
 function buildDashboardHistorySeries(history: PortfolioHistoryStore, range: DashboardRange) {
   const now = Date.now();
   const intradayBlendWindowMs = 14 * 24 * 60 * 60 * 1000;
@@ -328,17 +392,18 @@ function buildDashboardHistorySeries(history: PortfolioHistoryStore, range: Dash
 
     return !intradayDays.has(dayKey(new Date(snapshot.timestamp)));
   });
-  const values = [...dailySnapshots, ...intradaySnapshots]
-    .sort(
-      (left, right) =>
-        new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime(),
-    )
-    .map((snapshot) => snapshot.portfolioValue);
+  const mergedSnapshots = [...dailySnapshots, ...intradaySnapshots].sort(
+    (left, right) =>
+      new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime(),
+  );
+  const coherentSnapshots = selectCoherentHistorySnapshots(mergedSnapshots);
+  const values = coherentSnapshots.map((snapshot) => snapshot.portfolioValue);
 
   return {
     values,
     usesPersistedHistory: values.length >= 2,
     pointCount: values.length,
+    trimmedForContinuity: coherentSnapshots.length < mergedSnapshots.length,
   };
 }
 
@@ -563,13 +628,15 @@ export function DashboardPage() {
     model.concentrationIssues[0] ??
     model.alerts.find((alert) => alert.severity === 'high')?.message ??
     'No material portfolio breach detected.';
-  const historyFootnote = persistedSeries.usesPersistedHistory
-    ? persistedSeries.pointCount < 5
-      ? 'Chart is starting to build from saved portfolio snapshots. It will get more detailed as more sessions are recorded.'
-      : 'Chart uses saved intraday and end-of-day portfolio snapshots, so it stays intact across restarts.'
-    : hasHoldings
-      ? 'Saved portfolio history is still sparse, so the chart is temporarily estimating the path from your current holdings and cash.'
-      : 'Add holdings on the Portfolio page to replace the flat cash line with your live book.';
+  const historyFootnote = persistedSeries.trimmedForContinuity
+    ? 'Chart ignored stale snapshots that did not match your current portfolio state. New live snapshots will keep extending the correct history.'
+    : persistedSeries.usesPersistedHistory
+      ? persistedSeries.pointCount < 5
+        ? 'Chart is starting to build from saved portfolio snapshots. It will get more detailed as more sessions are recorded.'
+        : 'Chart uses saved intraday and end-of-day portfolio snapshots, so it stays intact across restarts.'
+      : hasHoldings
+        ? 'Saved portfolio history is still sparse, so the chart is temporarily estimating the path from your current holdings and cash.'
+        : 'Add holdings on the Portfolio page to replace the flat cash line with your live book.';
 
   return (
     <div className="page page--home">
@@ -603,77 +670,82 @@ export function DashboardPage() {
 
       <section id="home-overview" className="home-hero page-section">
         <div className="home-hero__main">
-          <div className="home-hero__eyebrow">Home</div>
-          <div className="home-hero__label">Portfolio value</div>
-          <div className="home-hero__value">{formatCurrency(model.portfolioValue)}</div>
-          <div className={`home-hero__delta home-hero__delta--${heroTone}`}>
-            <strong>{signedCurrency(rangeDelta)}</strong>
-            <span>{formatReturn(rangeReturn)}</span>
-            <small>{selectedRange}</small>
-          </div>
-          <div className="range-switcher">
-            {dashboardRanges.map((range) => (
-              <button
-                key={range}
-                type="button"
-                className={
-                  range === selectedRange
-                    ? 'range-switcher__button range-switcher__button--active'
-                    : 'range-switcher__button'
-                }
-                onClick={() => setSelectedRange(range)}
-              >
-                {range}
-              </button>
-            ))}
-          </div>
-          <div className="hero-chart-shell">
-            <Sparkline values={displayedSeries} tone={heroTone} />
-          </div>
-          <div className="hero-chart-footnote">{historyFootnote}</div>
-        </div>
-
-        <div className="home-hero__side">
-          <div className="summary-card summary-card--primary">
-            <div className="summary-card__eyebrow">Buying Power</div>
-            <strong>{formatCurrency(dataset.user.investableCash)}</strong>
-            <p>
-              Deploy {formatCurrency(model.deploymentPlan.deployNow)} now. Hold back{' '}
-              {formatCurrency(model.deploymentPlan.holdBack)} as reserve.
-            </p>
-            <BuyingPowerEditor
-              value={dataset.user.investableCash}
-              onChange={setInvestableCash}
-              className="buying-power-editor buying-power-editor--compact"
-            />
-            <div className="summary-card__actions">
-              <Link to="/portfolio" className="action-button">
-                Manage portfolio
-              </Link>
-              <Link to="/planner" className="panel-link">
-                Run planner
-              </Link>
+          <div className="home-hero__summary">
+            <div className="home-hero__eyebrow">Home</div>
+            <div className="home-hero__label">Portfolio value</div>
+            <div className="home-hero__value">{formatCurrency(model.portfolioValue)}</div>
+            <div className={`home-hero__delta home-hero__delta--${heroTone}`}>
+              <strong>{signedCurrency(rangeDelta)}</strong>
+              <span>{formatReturn(rangeReturn)}</span>
+              <small>{selectedRange}</small>
+            </div>
+            <div className="range-switcher">
+              {dashboardRanges.map((range) => (
+                <button
+                  key={range}
+                  type="button"
+                  className={
+                    range === selectedRange
+                      ? 'range-switcher__button range-switcher__button--active'
+                      : 'range-switcher__button'
+                  }
+                  onClick={() => setSelectedRange(range)}
+                >
+                  {range}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="summary-card">
-            <div className="summary-card__eyebrow">At A Glance</div>
-            <div className="summary-list">
-              <div className="summary-list__item">
-                <span>Holdings</span>
-                <strong>{model.holdings.length}</strong>
+          <div className="home-hero__chart-column">
+            <div className="hero-chart-shell">
+              <Sparkline values={displayedSeries} tone={heroTone} />
+            </div>
+            <div className="hero-chart-footnote">{historyFootnote}</div>
+          </div>
+
+          <div className="home-hero__side">
+            <div className="summary-card summary-card--primary">
+              <div className="summary-card__eyebrow">Buying Power</div>
+              <strong>{formatCurrency(dataset.user.investableCash)}</strong>
+              <p>
+                Deploy {formatCurrency(model.deploymentPlan.deployNow)} now. Hold back{' '}
+                {formatCurrency(model.deploymentPlan.holdBack)} as reserve.
+              </p>
+              <BuyingPowerEditor
+                value={dataset.user.investableCash}
+                onChange={setInvestableCash}
+                className="buying-power-editor buying-power-editor--compact"
+              />
+              <div className="summary-card__actions">
+                <Link to="/portfolio" className="action-button">
+                  Manage portfolio
+                </Link>
+                <Link to="/planner" className="panel-link">
+                  Run planner
+                </Link>
               </div>
-              <div className="summary-list__item">
-                <span>Regime</span>
-                <strong>{model.regime.key}</strong>
-              </div>
-              <div className="summary-list__item">
-                <span>Top idea</span>
-                <strong>{leadingIdea?.symbol ?? 'No buy candidate'}</strong>
-              </div>
-              <div className="summary-list__item">
-                <span>Top risk</span>
-                <strong>{model.alerts[0]?.kind ?? 'No active breach'}</strong>
+            </div>
+
+            <div className="summary-card">
+              <div className="summary-card__eyebrow">At A Glance</div>
+              <div className="summary-list">
+                <div className="summary-list__item">
+                  <span>Holdings</span>
+                  <strong>{model.holdings.length}</strong>
+                </div>
+                <div className="summary-list__item">
+                  <span>Regime</span>
+                  <strong>{model.regime.key}</strong>
+                </div>
+                <div className="summary-list__item">
+                  <span>Top idea</span>
+                  <strong>{leadingIdea?.symbol ?? 'No buy candidate'}</strong>
+                </div>
+                <div className="summary-list__item">
+                  <span>Top risk</span>
+                  <strong>{model.alerts[0]?.kind ?? 'No active breach'}</strong>
+                </div>
               </div>
             </div>
           </div>
@@ -828,7 +900,7 @@ export function DashboardPage() {
             <MetricCard
               label="Average Risk"
               value={`${Math.round(model.averageRisk)}/100`}
-              detail={`${dataset.user.maxPortfolioDrawdownTolerance * 100}% drawdown tolerance`}
+              detail={`${Math.round(dataset.user.maxPortfolioDrawdownTolerance * 100)}% drawdown tolerance`}
               tone={model.averageRisk > 55 ? 'negative' : 'neutral'}
             />
             <MetricCard

@@ -5,6 +5,7 @@ import type {
 } from '../domain/types'
 
 const historyApiPath = '/api/storage/portfolio-history'
+const intradayBucketMinutes = 15
 
 function defaultPortfolioHistory(): PortfolioHistoryStore {
   return {
@@ -19,6 +20,19 @@ function roundMoney(value: number) {
   }
 
   return Math.round(value * 100) / 100
+}
+
+function padTimeUnit(value: number) {
+  return value.toString().padStart(2, '0')
+}
+
+function toLocalDateKey(date: Date) {
+  return `${date.getFullYear()}-${padTimeUnit(date.getMonth() + 1)}-${padTimeUnit(date.getDate())}`
+}
+
+function toIntradayBucketKey(date: Date) {
+  const bucketMinute = Math.floor(date.getMinutes() / intradayBucketMinutes) * intradayBucketMinutes
+  return `${toLocalDateKey(date)}T${padTimeUnit(date.getHours())}:${padTimeUnit(bucketMinute)}`
 }
 
 function normalizeHistorySnapshot(
@@ -61,11 +75,20 @@ function normalizeHistorySeries(
     return []
   }
 
-  return sortSnapshots(
-    input
-      .map((snapshot) => normalizeHistorySnapshot(snapshot, granularity))
-      .filter((snapshot): snapshot is PortfolioHistorySnapshot => Boolean(snapshot)),
-  )
+  const merged = new Map<string, PortfolioHistorySnapshot>()
+
+  for (const snapshot of input
+    .map((entry) => normalizeHistorySnapshot(entry, granularity))
+    .filter((entry): entry is PortfolioHistorySnapshot => Boolean(entry))) {
+    const key = historySnapshotKey(snapshot)
+    const current = merged.get(key)
+
+    if (!current || new Date(snapshot.timestamp).getTime() >= new Date(current.timestamp).getTime()) {
+      merged.set(key, snapshot)
+    }
+  }
+
+  return sortSnapshots([...merged.values()])
 }
 
 export function normalizePortfolioHistory(input: unknown): PortfolioHistoryStore {
@@ -82,7 +105,10 @@ export function normalizePortfolioHistory(input: unknown): PortfolioHistoryStore
 }
 
 export function historySnapshotKey(snapshot: PortfolioHistorySnapshot) {
-  return `${snapshot.granularity}:${snapshot.timestamp}`
+  const timestamp = new Date(snapshot.timestamp)
+  const timeKey =
+    snapshot.granularity === 'daily' ? toLocalDateKey(timestamp) : toIntradayBucketKey(timestamp)
+  return `${snapshot.granularity}:${timeKey}`
 }
 
 export function mergePortfolioHistoryStores(
@@ -96,7 +122,12 @@ export function mergePortfolioHistoryStores(
     const merged = new Map<string, PortfolioHistorySnapshot>()
 
     for (const snapshot of [...leftSeries, ...rightSeries]) {
-      merged.set(historySnapshotKey(snapshot), snapshot)
+      const key = historySnapshotKey(snapshot)
+      const current = merged.get(key)
+
+      if (!current || new Date(snapshot.timestamp).getTime() >= new Date(current.timestamp).getTime()) {
+        merged.set(key, snapshot)
+      }
     }
 
     return sortSnapshots([...merged.values()])

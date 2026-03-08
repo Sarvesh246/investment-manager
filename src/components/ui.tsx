@@ -37,13 +37,37 @@ export function PageJumpNav({
 }: {
   items: Array<{ href: string; label: string; detail?: string }>;
 }) {
+  function handleJump(href: string) {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    const targetId = href.startsWith('#') ? href.slice(1) : href;
+
+    if (!targetId) {
+      return;
+    }
+
+    const target = document.getElementById(targetId);
+    if (!target) {
+      return;
+    }
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   return (
     <nav className="page-jump-nav" aria-label="Jump to section">
       {items.map((item) => (
-        <a key={item.href} href={item.href} className="page-jump-nav__link">
+        <button
+          key={item.href}
+          type="button"
+          className="page-jump-nav__link"
+          onClick={() => handleJump(item.href)}
+        >
           <strong>{item.label}</strong>
           {item.detail ? <span>{item.detail}</span> : null}
-        </a>
+        </button>
       ))}
     </nav>
   );

@@ -1136,7 +1136,7 @@ function buildAlerts(
         id: `${entry.sector}-sector-cap`,
         severity: 'high',
         kind: 'Concentration',
-        message: `${entry.sector} exposure is ${entry.weight}% versus a ${dataset.user.maxSectorWeight * 100}% cap.`,
+        message: `${entry.sector} exposure is ${round(entry.weight, 1)}% versus a ${round(dataset.user.maxSectorWeight * 100, 0)}% cap.`,
         route: '/portfolio',
       });
     }
@@ -1375,13 +1375,13 @@ export function buildCommandCenterModel(dataset: MockDataset): CommandCenterMode
     .filter((holding) => holding.concentrationFlag)
     .map(
       (holding) =>
-        `${holding.symbol} is ${holding.weight}% of portfolio value versus a ${dataset.user.maxSinglePositionWeight * 100}% single-name cap.`,
+        `${holding.symbol} is ${round(holding.weight, 1)}% of portfolio value versus a ${round(dataset.user.maxSinglePositionWeight * 100, 0)}% single-name cap.`,
     );
 
   portfolioContext.sectorExposure.forEach((entry) => {
     if (entry.weight / 100 > dataset.user.maxSectorWeight) {
       concentrationIssues.push(
-        `${entry.sector} is ${entry.weight}% of portfolio value versus a ${dataset.user.maxSectorWeight * 100}% sector cap.`,
+        `${entry.sector} is ${round(entry.weight, 1)}% of portfolio value versus a ${round(dataset.user.maxSectorWeight * 100, 0)}% sector cap.`,
       );
     }
   });

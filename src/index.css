@@ -92,6 +92,9 @@ select:focus-visible {
   position: sticky;
   top: 0;
   height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 1.1rem 0.95rem;
   border-right: 1px solid var(--line);
   background:
@@ -174,6 +177,7 @@ select:focus-visible {
 
 .sidebar__profile {
   margin-top: auto;
+  flex-shrink: 0;
 }
 
 .sidebar__quick-actions {
@@ -337,6 +341,11 @@ select:focus-visible {
   gap: 0.15rem;
   min-width: 8.25rem;
   padding: 0.6rem 0.78rem;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
   border-radius: 1rem;
   border: 1px solid var(--line);
   background:
@@ -357,6 +366,42 @@ select:focus-visible {
 .page-jump-nav__link:hover {
   border-color: rgba(84, 163, 255, 0.24);
   background: rgba(84, 163, 255, 0.08);
+}
+
+.page-jump-nav__link:focus-visible {
+  outline: 2px solid rgba(84, 163, 255, 0.45);
+  outline-offset: 2px;
+}
+
+.route-error {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  gap: 0.9rem;
+  padding: 2rem;
+  background:
+    radial-gradient(circle at top, rgba(0, 201, 107, 0.1), transparent 28%),
+    linear-gradient(180deg, #060807 0%, #09100d 100%);
+  color: var(--text);
+}
+
+.route-error__eyebrow {
+  color: var(--positive);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.74rem;
+}
+
+.route-error h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 3vw, 2.7rem);
+}
+
+.route-error p {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .page-header {
@@ -423,6 +468,8 @@ select:focus-visible {
   color: var(--muted);
   font-size: 0.86rem;
   line-height: 1.5;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 
 .panel-link {
@@ -450,9 +497,7 @@ select:focus-visible {
 }
 
 .home-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.75fr) minmax(18rem, 0.92fr);
-  gap: 0.85rem;
+  display: block;
 }
 
 .home-hero__main,
@@ -466,6 +511,22 @@ select:focus-visible {
 
 .home-hero__main {
   padding: 1.2rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(19rem, 0.78fr);
+  grid-template-rows: auto 1fr;
+  column-gap: 1rem;
+  row-gap: 0.75rem;
+  align-items: start;
+}
+
+.home-hero__summary {
+  min-width: 0;
+}
+
+.home-hero__chart-column {
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 2;
 }
 
 .home-hero__eyebrow,
@@ -541,7 +602,6 @@ select:focus-visible {
 }
 
 .hero-chart-shell {
-  margin-top: 0.9rem;
   padding: 0.35rem 0;
   min-height: 14rem;
 }
@@ -558,7 +618,26 @@ select:focus-visible {
 
 .home-hero__side {
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 1rem;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  height: 100%;
+}
+
+.home-hero__side .summary-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.home-hero__side .summary-card__actions {
+  margin-top: auto;
+  padding-top: 0.9rem;
+}
+
+.home-hero__side .summary-list {
+  flex: 1;
 }
 
 .summary-card {
@@ -1163,7 +1242,7 @@ select:focus-visible {
 .alert-row {
   border: 1px solid var(--line);
   border-radius: 1rem;
-  padding: 0.78rem;
+  padding: 0.78rem 1rem;
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -1171,9 +1250,19 @@ select:focus-visible {
   align-items: flex-start;
 }
 
+.alert-row--full > div:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+
+.alert-row--full > .tag {
+  flex-shrink: 0;
+}
+
 .alert-row__icon {
   width: 2rem;
   height: 2rem;
+  flex-shrink: 0;
   border-radius: 0.7rem;
   display: grid;
   place-items: center;
@@ -1183,13 +1272,16 @@ select:focus-visible {
 
 .alert-row__title {
   font-weight: 600;
-  margin-bottom: 0.18rem;
+  margin-bottom: 0.35rem;
 }
 
 .alert-row p,
 .text-card p,
 .recommendation-card p {
   margin: 0;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 
 .recommendation-card__metrics {
@@ -1384,9 +1476,27 @@ select:focus-visible {
 
   .recommendation-grid,
   .dashboard-grid,
-  .home-hero,
   .two-column-layout {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1160px) {
+  .home-hero__main {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    row-gap: 1rem;
+  }
+
+  .home-hero__side {
+    grid-template-rows: none;
+    grid-column: 1;
+    grid-row: 3;
+    height: auto;
+  }
+
+  .home-hero__chart-column {
+    grid-row: 2;
   }
 }
 
