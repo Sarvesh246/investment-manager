@@ -15,6 +15,12 @@ import { YahooPublicProvider } from '../live/yahooPublic';
 import type { PortfolioWorkspaceValue } from './portfolioContext';
 import { PortfolioWorkspaceContext } from './portfolioContext';
 import {
+  fetchSharedPortfolioHistory,
+  mergePortfolioHistoryStores,
+  normalizePortfolioHistory,
+  persistSharedPortfolioHistory,
+} from './sharedStorage';
+import {
   applyQuoteToSecurity,
   buildSecurityFromLiveData,
   createProvisionalSecurity,
@@ -41,10 +47,7 @@ function defaultState(): PersistedState {
 }
 
 function defaultPortfolioHistory(): PortfolioHistoryStore {
-  return {
-    intraday: [],
-    daily: [],
-  };
+  return normalizePortfolioHistory({});
 }
 
 function roundMoney(value: number) {
@@ -78,47 +81,6 @@ function snapshotKey(snapshot: PortfolioHistorySnapshot) {
 function sortSnapshots(snapshots: PortfolioHistorySnapshot[]) {
   return [...snapshots].sort(
     (left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime(),
-  );
-}
-
-function normalizeHistorySnapshot(
-  input: unknown,
-  granularity: PortfolioHistoryGranularity,
-): PortfolioHistorySnapshot | null {
-  if (!input || typeof input !== 'object') {
-    return null;
-  }
-
-  const snapshot = input as Record<string, unknown>;
-  const timestamp = typeof snapshot.timestamp === 'string' ? snapshot.timestamp : null;
-
-  if (!timestamp || Number.isNaN(new Date(timestamp).getTime())) {
-    return null;
-  }
-
-  return {
-    timestamp,
-    granularity,
-    portfolioValue: roundMoney(Number(snapshot.portfolioValue) || 0),
-    holdingsValue: roundMoney(Number(snapshot.holdingsValue) || 0),
-    cashValue: roundMoney(Number(snapshot.cashValue) || 0),
-    costBasisValue: roundMoney(Number(snapshot.costBasisValue) || 0),
-    holdingCount: Math.max(0, Math.round(Number(snapshot.holdingCount) || 0)),
-  };
-}
-
-function normalizeHistorySeries(
-  input: unknown,
-  granularity: PortfolioHistoryGranularity,
-): PortfolioHistorySnapshot[] {
-  if (!Array.isArray(input)) {
-    return [];
-  }
-
-  return sortSnapshots(
-    input
-      .map((snapshot) => normalizeHistorySnapshot(snapshot, granularity))
-      .filter((snapshot): snapshot is PortfolioHistorySnapshot => Boolean(snapshot)),
   );
 }
 
@@ -173,14 +135,10 @@ function loadPersistedHistory(): PortfolioHistoryStore {
   }
 
   try {
-    const parsed = JSON.parse(raw) as {
-      intraday?: unknown;
-      daily?: unknown;
-    };
-
+    const parsed = normalizePortfolioHistory(JSON.parse(raw));
     return {
-      intraday: pruneSnapshots(normalizeHistorySeries(parsed.intraday, 'intraday'), 'intraday'),
-      daily: pruneSnapshots(normalizeHistorySeries(parsed.daily, 'daily'), 'daily'),
+      intraday: pruneSnapshots(parsed.intraday, 'intraday'),
+      daily: pruneSnapshots(parsed.daily, 'daily'),
     };
   } catch {
     return defaultPortfolioHistory();
@@ -285,6 +243,7 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
   const [portfolioHistory, setPortfolioHistory] = useState<PortfolioHistoryStore>(() =>
     loadPersistedHistory(),
   );
+  const [sharedHistoryReady, setSharedHistoryReady] = useState(false);
   const [symbolDirectory, setSymbolDirectory] = useState<SymbolDirectoryEntry[]>([]);
   const [symbolDirectoryState, setSymbolDirectoryState] = useState<'loading' | 'ready' | 'error'>(
     'loading',
@@ -309,6 +268,48 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
   useEffect(() => {
     persistPortfolioHistory(portfolioHistory);
   }, [portfolioHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateSharedPortfolioHistory() {
+      try {
+        const sharedHistory = await fetchSharedPortfolioHistory();
+
+        if (cancelled) {
+          return;
+        }
+
+        setPortfolioHistory((current) => {
+          const merged = mergePortfolioHistoryStores(current, sharedHistory);
+          return {
+            intraday: pruneSnapshots(merged.intraday, 'intraday'),
+            daily: pruneSnapshots(merged.daily, 'daily'),
+          };
+        });
+      } catch {
+        // Shared file-backed history is best-effort; local cache remains the fallback.
+      } finally {
+        if (!cancelled) {
+          setSharedHistoryReady(true);
+        }
+      }
+    }
+
+    void hydrateSharedPortfolioHistory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sharedHistoryReady) {
+      return;
+    }
+
+    void persistSharedPortfolioHistory(portfolioHistory);
+  }, [portfolioHistory, sharedHistoryReady]);
 
   useEffect(() => {
     let cancelled = false;

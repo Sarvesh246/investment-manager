@@ -13,7 +13,17 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useParams } from 'react-router-dom';
-import { Panel, MetricCard, PageHeader, ScorePill, SignalBar, Sparkline, Table, Tag } from './components/ui';
+import {
+  Panel,
+  MetricCard,
+  PageHeader,
+  PageJumpNav,
+  ScorePill,
+  SignalBar,
+  Sparkline,
+  Table,
+  Tag,
+} from './components/ui';
 import { buildDeploymentPlan, getHolding, getScorecard, getSecurity, profileSummary } from './domain/engine';
 import type {
   ActionLabel,
@@ -128,6 +138,106 @@ function liveStatusText(
   }
 
   return 'Snapshot';
+}
+
+function actionPriority(action: ActionLabel) {
+  switch (action) {
+    case 'Buy now':
+      return 0;
+    case 'Buy partial':
+      return 1;
+    case 'Accumulate slowly':
+      return 2;
+    case 'Watch only':
+      return 3;
+    case 'Reassess after earnings':
+      return 4;
+    case 'High-upside / high-risk only':
+      return 5;
+    case 'Hold':
+      return 6;
+    case 'Trim':
+      return 7;
+    case 'Not suitable for current portfolio':
+      return 8;
+    case 'Avoid':
+    default:
+      return 9;
+  }
+}
+
+function isPotentialBuyAction(action: ActionLabel) {
+  return !['Avoid', 'Trim', 'Hold', 'Not suitable for current portfolio'].includes(action);
+}
+
+function buyPotentialScore(
+  card: ReturnType<typeof usePortfolioWorkspace>['model']['scorecards'][number],
+) {
+  return Math.round(
+    Math.max(
+      0,
+      Math.min(
+        100,
+        card.opportunity.score * 0.34 +
+          card.portfolioFit.score * 0.24 +
+          card.timing.score * 0.14 +
+          (100 - card.risk.overall) * 0.18 +
+          card.confidence * 0.1,
+      ),
+    ),
+  );
+}
+
+function buyBlocker(
+  card: ReturnType<typeof usePortfolioWorkspace>['model']['scorecards'][number],
+) {
+  if (card.action === 'Reassess after earnings') {
+    return 'The setup is waiting on the earnings window to clear.';
+  }
+
+  if (card.action === 'High-upside / high-risk only') {
+    return 'Upside is real, but the risk bucket is too hot for a normal-sized position.';
+  }
+
+  if (card.portfolioFit.score < 55) {
+    return 'Portfolio fit still needs to improve before it deserves fresh capital.';
+  }
+
+  if (card.timing.score < 55) {
+    return 'The business may work, but the entry timing is still mediocre.';
+  }
+
+  if (card.risk.overall > 62) {
+    return 'Risk still needs to come down before this moves into the buy bucket.';
+  }
+
+  if (card.confidence < 62) {
+    return 'The signal is promising, but confidence is not strong enough yet.';
+  }
+
+  return 'This is close, but one more improvement in timing, fit, or risk would help.';
+}
+
+function potentialBuyRows(model: ReturnType<typeof usePortfolioWorkspace>['model']) {
+  const heldSymbols = new Set(model.dataset.holdings.map((holding) => holding.symbol));
+
+  return model.scorecards
+    .filter((card) => !heldSymbols.has(card.symbol) && isPotentialBuyAction(card.action))
+    .sort((left, right) => {
+      const actionOrder = actionPriority(left.action) - actionPriority(right.action);
+
+      if (actionOrder !== 0) {
+        return actionOrder;
+      }
+
+      const potentialGap = buyPotentialScore(right) - buyPotentialScore(left);
+
+      if (potentialGap !== 0) {
+        return potentialGap;
+      }
+
+      return right.composite - left.composite;
+    });
 }
 
 function homeSeries(model: ReturnType<typeof usePortfolioWorkspace>['model']) {
@@ -319,6 +429,10 @@ export function AppShell() {
         : liveHeldCount > 0
           ? 'partial'
           : 'unavailable';
+  const actionableIdeasCount = model.scorecards.filter((card) =>
+    ['Buy now', 'Buy partial', 'Accumulate slowly'].includes(card.action),
+  ).length;
+  const urgentAlertCount = model.alerts.filter((alert) => alert.severity === 'high').length;
 
   return (
     <div className="app-shell">
@@ -353,6 +467,22 @@ export function AppShell() {
             </NavLink>
           ))}
         </nav>
+
+        <div className="sidebar__quick-actions">
+          <div className="sidebar__quick-actions-title">Common tasks</div>
+          <Link to="/portfolio" className="sidebar__task-card">
+            <span>Update portfolio</span>
+            <strong>{model.holdings.length} holdings</strong>
+          </Link>
+          <Link to="/recommendations" className="sidebar__task-card">
+            <span>Review candidates</span>
+            <strong>{actionableIdeasCount} actionable</strong>
+          </Link>
+          <Link to="/alerts" className="sidebar__task-card">
+            <span>Check risks</span>
+            <strong>{urgentAlertCount} urgent</strong>
+          </Link>
+        </div>
 
         <Panel
           title="Your Plan"
@@ -394,7 +524,10 @@ export function AppShell() {
             />
             <ScorePill label="Portfolio Value" score={formatCompactCurrency(model.portfolioValue)} />
             <ScorePill label="Cash" score={formatCurrency(dataset.user.investableCash)} />
-            <ScorePill label="Deploy Now" score={formatCurrency(model.deploymentPlan.deployNow)} />
+            <Link to="/planner" className="workspace__deploy">
+              <span>Deploy Now</span>
+              <strong>{formatCurrency(model.deploymentPlan.deployNow)}</strong>
+            </Link>
           </div>
         </div>
         <Outlet />
@@ -406,13 +539,10 @@ export function AppShell() {
 export function DashboardPage() {
   const { dataset, model, portfolioHistory, setInvestableCash } = usePortfolioWorkspace();
   const [selectedRange, setSelectedRange] = useState<DashboardRange>('12M');
-  const opportunityRows = model.scorecards
-    .filter(
-      (card) =>
-        !dataset.holdings.some((holding) => holding.symbol === card.symbol) &&
-        ['Buy now', 'Buy partial', 'Accumulate slowly'].includes(card.action),
-    )
-    .slice(0, 5);
+  const opportunityRows = potentialBuyRows(model).slice(0, 5);
+  const actionableOpportunityCount = opportunityRows.filter((card) =>
+    ['Buy now', 'Buy partial', 'Accumulate slowly'].includes(card.action),
+  ).length;
   const persistedSeries = buildDashboardHistorySeries(portfolioHistory, selectedRange);
   const fallbackSeries = homeSeries(model).slice(-rangeWindow(selectedRange));
   const displayedSeries = persistedSeries.usesPersistedHistory
@@ -462,7 +592,16 @@ export function DashboardPage() {
         </section>
       ) : null}
 
-      <section className="home-hero">
+      <PageJumpNav
+        items={[
+          { href: '#home-overview', label: 'Overview', detail: 'Balance and trend' },
+          { href: '#home-actions', label: 'Next moves', detail: 'What to do now' },
+          { href: '#home-risk', label: 'Risk radar', detail: 'Problems to fix' },
+          { href: '#home-exposure', label: 'Exposure', detail: 'Concentration and balance' },
+        ]}
+      />
+
+      <section id="home-overview" className="home-hero page-section">
         <div className="home-hero__main">
           <div className="home-hero__eyebrow">Home</div>
           <div className="home-hero__label">Portfolio value</div>
@@ -585,16 +724,20 @@ export function DashboardPage() {
         )}
       </section>
 
-      <div className="dashboard-grid">
+      <div id="home-actions" className="dashboard-grid page-section">
         <Panel
           title="For You"
           eyebrow="Ranked Opportunities"
-          subtitle="The best new ideas after adjusting for your current portfolio and risk rules."
+          subtitle={
+            actionableOpportunityCount > 0
+              ? 'The best new ideas after adjusting for your current portfolio and risk rules.'
+              : 'No green light right now, but these are the strongest next-up names for your portfolio.'
+          }
         >
           {opportunityRows.length === 0 ? (
             <div className="empty-state empty-state--compact">
-              <h2>No fresh ideas right now.</h2>
-              <p>The engine does not see a strong new buy that fits your current rules and portfolio.</p>
+              <h2>No usable candidates right now.</h2>
+              <p>The engine does not see a stock worth tracking under your current rules, fit, and risk settings.</p>
             </div>
           ) : (
             <div className="home-opportunity-list">
@@ -605,9 +748,12 @@ export function DashboardPage() {
                       <strong>{card.symbol}</strong>
                       <Tag tone={toneForAction(card.action)}>{card.action}</Tag>
                     </div>
-                    <p>{simpleActionText(card.action)}. {card.explanation.summary}</p>
+                    <p>
+                      {simpleActionText(card.action)}. {buyBlocker(card)}
+                    </p>
                   </div>
                   <div className="home-opportunity-row__metrics">
+                    <ScorePill label="Readiness" score={buyPotentialScore(card)} />
                     <ScorePill label="Base 12M" score={formatReturn(card.expectedReturns[2].base)} />
                     <ScorePill label="Fit" score={card.portfolioFit.score} />
                   </div>
@@ -618,6 +764,7 @@ export function DashboardPage() {
         </Panel>
 
         <Panel
+          id="home-risk"
           title="Risk Radar"
           eyebrow="Immediate Attention"
           subtitle="These are the items most likely to hurt your results if you ignore them."
@@ -694,6 +841,7 @@ export function DashboardPage() {
         </Panel>
 
         <Panel
+          id="home-exposure"
           title="Exposure Map"
           eyebrow="Portfolio Shape"
           subtitle="Sector, factor, and risk exposure across current holdings."
@@ -762,10 +910,13 @@ export function DiscoveryPage() {
   const { model, symbolDirectory, symbolDirectoryState, symbolDirectoryError, ensureLiveSecurity } =
     usePortfolioWorkspace();
   const [sector, setSector] = useState('All');
-  const [sortBy, setSortBy] = useState<'composite' | 'risk' | 'fit' | 'expected'>('composite');
+  const [sortBy, setSortBy] = useState<'readiness' | 'composite' | 'risk' | 'fit' | 'expected'>(
+    'readiness',
+  );
   const [action, setAction] = useState('All');
   const [lookupQuery, setLookupQuery] = useState('');
   const lookupMatches = symbolMatches(symbolDirectory, lookupQuery);
+  const topMatches = potentialBuyRows(model).slice(0, 3);
 
   const rows = [...model.scorecards]
     .filter((card) => {
@@ -778,6 +929,9 @@ export function DiscoveryPage() {
       return sectorMatch && actionMatch;
     })
     .sort((left, right) => {
+      if (sortBy === 'readiness') {
+        return buyPotentialScore(right) - buyPotentialScore(left);
+      }
       if (sortBy === 'risk') {
         return left.risk.overall - right.risk.overall;
       }
@@ -795,6 +949,15 @@ export function DiscoveryPage() {
       <PageHeader
         title="Explore Stocks"
         summary="Use this page to compare ideas in plain language: upside, risk, timing, and how well each stock fits your current portfolio."
+      />
+
+      <PageJumpNav
+        items={[
+          { href: '#explore-best', label: 'Best matches', detail: 'Strongest fits first' },
+          { href: '#explore-lookup', label: 'Look up', detail: 'Find any ticker' },
+          { href: '#explore-filters', label: 'Filter', detail: 'Narrow the universe' },
+          { href: '#explore-results', label: 'Results', detail: 'Compare the ranked list' },
+        ]}
       />
 
       <section className="guide-grid">
@@ -816,6 +979,38 @@ export function DiscoveryPage() {
       </section>
 
       <Panel
+        id="explore-best"
+        title="Best Matches For Your Portfolio"
+        eyebrow="Start Here"
+        subtitle="If you only review a few names, start with these. They are the strongest current or near-ready fits for your portfolio."
+      >
+        {topMatches.length === 0 ? (
+          <div className="empty-state empty-state--compact">
+            <h2>No promising matches yet.</h2>
+            <p>The engine does not currently see a non-held stock worth prioritizing for review.</p>
+          </div>
+        ) : (
+          <div className="watchlist-grid">
+            {topMatches.map((card) => (
+              <Link key={card.symbol} to={`/stocks/${card.symbol}`} className="recommendation-card">
+                <div className="recommendation-card__header">
+                  <strong>{card.symbol}</strong>
+                  <Tag tone={toneForAction(card.action)}>{card.action}</Tag>
+                </div>
+                <p>{buyBlocker(card)}</p>
+                <div className="recommendation-card__metrics">
+                  <ScorePill label="Readiness" score={buyPotentialScore(card)} />
+                  <ScorePill label="Base 12M" score={formatReturn(card.expectedReturns[2].base)} />
+                  <ScorePill label="Fit" score={card.portfolioFit.score} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Panel>
+
+      <Panel
+        id="explore-lookup"
         title="Look Up Any S&P 500 Or Nasdaq Ticker"
         eyebrow="Live Coverage"
         subtitle="Search the synced Yahoo-compatible directory, then open a stock page to load live market data on demand."
@@ -880,7 +1075,12 @@ export function DiscoveryPage() {
         </div>
       </Panel>
 
-      <Panel title="Screen Controls" eyebrow="Filters" subtitle="Start broad, then narrow by sector, sort order, and action label.">
+      <Panel
+        id="explore-filters"
+        title="Screen Controls"
+        eyebrow="Filters"
+        subtitle="Start broad, then narrow by sector, sort order, and action label."
+      >
         <div className="filters">
           <label>
             Sector
@@ -893,6 +1093,7 @@ export function DiscoveryPage() {
           <label>
             Sort By
             <select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}>
+              <option value="readiness">Best Match For Me</option>
               <option value="composite">Composite</option>
               <option value="expected">12M Expected Return</option>
               <option value="fit">Portfolio Fit</option>
@@ -910,7 +1111,12 @@ export function DiscoveryPage() {
         </div>
       </Panel>
 
-      <Panel title="Ranked Universe" eyebrow="Screen Results" subtitle={`${rows.length} securities match the active filter.`}>
+      <Panel
+        id="explore-results"
+        title="Ranked Universe"
+        eyebrow="Screen Results"
+        subtitle={`${rows.length} securities match the active filter.`}
+      >
         {rows.length === 0 ? (
           <div className="empty-state empty-state--compact">
             <h2>No stocks match these filters.</h2>
@@ -918,7 +1124,7 @@ export function DiscoveryPage() {
           </div>
         ) : null}
         <Table
-          columns={['Symbol', 'Sector', 'Action', 'Composite', 'Opportunity', 'Fragility', 'Timing', 'Fit', '12M Base']}
+          columns={['Symbol', 'Sector', 'Action', 'Readiness', 'Composite', 'Opportunity', 'Fragility', 'Timing', 'Fit', '12M Base']}
           rows={rows.map((card) => {
             const security = getSecurity(model, card.symbol);
             return [
@@ -929,6 +1135,7 @@ export function DiscoveryPage() {
               <Tag key={`${card.symbol}-tag`} tone={toneForAction(card.action)}>
                 {card.action}
               </Tag>,
+              <span key={`${card.symbol}-r`}>{buyPotentialScore(card)}</span>,
               <span key={`${card.symbol}-c`}>{card.composite}</span>,
               <span key={`${card.symbol}-o`}>{card.opportunity.score}</span>,
               <span key={`${card.symbol}-f`}>{card.fragility.score}</span>,
@@ -1025,6 +1232,15 @@ export function PortfolioPage() {
         summary="This is your live portfolio view: what you own, what it is worth, and whether you are too concentrated in one stock or theme."
       />
 
+      <PageJumpNav
+        items={[
+          { href: '#portfolio-summary', label: 'Summary', detail: 'Value and risk' },
+          { href: '#portfolio-manage', label: 'Manage', detail: 'Add or update positions' },
+          { href: '#portfolio-book', label: 'Live book', detail: 'Current holdings' },
+          { href: '#portfolio-balance', label: 'Balance', detail: 'Exposure and overlap' },
+        ]}
+      />
+
       {dataset.holdings.length === 0 ? (
         <section className="empty-state empty-state--compact">
           <div className="empty-state__eyebrow">No holdings yet</div>
@@ -1033,7 +1249,7 @@ export function PortfolioPage() {
         </section>
       ) : null}
 
-      <div className="kpi-grid">
+      <div id="portfolio-summary" className="kpi-grid page-section">
         <MetricCard
           label="Holdings Value"
           value={formatCurrency(investedValue)}
@@ -1061,7 +1277,12 @@ export function PortfolioPage() {
       </div>
 
       <div className="two-column-layout">
-        <Panel title="Portfolio Inputs" eyebrow="Manage Positions" subtitle="Use this form whenever you add, update, or remove a position.">
+        <Panel
+          id="portfolio-manage"
+          title="Portfolio Inputs"
+          eyebrow="Manage Positions"
+          subtitle="Use this form whenever you add, update, or remove a position."
+        >
           <div className="filters filters--stacked">
             <BuyingPowerEditor value={investableCash} onChange={setInvestableCash} />
             <label>
@@ -1154,6 +1375,7 @@ export function PortfolioPage() {
                   setForm((current) => ({ ...current, shares: Number(event.target.value) }))
                 }
               />
+              <span className="field-help">Fractional shares are supported. Enter the exact share count you own.</span>
             </label>
             <label>
               Average Buy Price
@@ -1166,6 +1388,7 @@ export function PortfolioPage() {
                   setForm((current) => ({ ...current, costBasis: Number(event.target.value) }))
                 }
               />
+              <span className="field-help">Use your blended average entry price so gain/loss is calculated correctly.</span>
             </label>
             <button
               className="action-button"
@@ -1182,7 +1405,12 @@ export function PortfolioPage() {
           </div>
         </Panel>
 
-        <Panel title="Current Holdings" eyebrow="Live Book" subtitle="Current price, market value, gain/loss, and the system's view on each holding.">
+        <Panel
+          id="portfolio-book"
+          title="Current Holdings"
+          eyebrow="Live Book"
+          subtitle="Current price, market value, gain/loss, and the system's view on each holding."
+        >
           <Table
             columns={['Ticker', 'Shares', 'Last Price', 'Market Value', 'Portfolio Weight', 'Gain/Loss', 'Risk', 'System View', 'Live Data', '']}
             rows={model.holdings.map((holding) => [
@@ -1224,7 +1452,11 @@ export function PortfolioPage() {
           />
         </Panel>
 
-        <Panel title="Rebalance and Trim" eyebrow="Portfolio Actions" subtitle="These are the holdings that need attention because they may be too large or too risky.">
+        <Panel
+          title="Rebalance and Trim"
+          eyebrow="Portfolio Actions"
+          subtitle="These are the holdings that need attention because they may be too large or too risky."
+        >
           <ul className="bullet-list">
             {model.concentrationIssues.map((issue) => (
               <li key={issue}>{issue}</li>
@@ -1240,7 +1472,7 @@ export function PortfolioPage() {
         </Panel>
       </div>
 
-      <div className="dashboard-grid">
+      <div id="portfolio-balance" className="dashboard-grid page-section">
         <Panel title="Exposure Breakdown" eyebrow="Current State" subtitle="Use this to judge whether a new idea improves or worsens balance.">
           <div className="triple-columns">
             <div>
@@ -1277,6 +1509,7 @@ export function PortfolioPage() {
 
 export function RecommendationsPage() {
   const { model } = usePortfolioWorkspace();
+  const buyCandidates = potentialBuyRows(model).slice(0, 6);
   const buckets = Array.from(
     model.scorecards.reduce((map, card) => {
       const list = map.get(card.action) ?? [];
@@ -1290,10 +1523,18 @@ export function RecommendationsPage() {
     <div className="page">
       <PageHeader
         title="Ideas"
-        summary="This page turns the math into plain actions: buy now, ease in slowly, wait, or avoid."
+        summary="This page keeps the strict action labels, but it also shows the best next-up candidates even when nothing is a clean buy today."
       />
 
-      <section className="guide-grid">
+      <PageJumpNav
+        items={[
+          { href: '#ideas-primer', label: 'How to read', detail: 'Understand the labels' },
+          { href: '#ideas-next', label: 'Next up', detail: 'Best potential buys' },
+          { href: '#ideas-buckets', label: 'Buckets', detail: 'All action groups' },
+        ]}
+      />
+
+      <section id="ideas-primer" className="guide-grid page-section">
         <div className="guide-card">
           <div className="guide-card__eyebrow">Buy now</div>
           <strong>Strong setup</strong>
@@ -1311,7 +1552,41 @@ export function RecommendationsPage() {
         </div>
       </section>
 
-      <div className="recommendation-grid">
+      <Panel
+        id="ideas-next"
+        title="Best Potential Buys"
+        eyebrow="Next Up"
+        subtitle="These are the names most worth researching next for your current portfolio, even if the system is still holding cash."
+      >
+        {buyCandidates.length === 0 ? (
+          <div className="empty-state empty-state--compact">
+            <h2>No promising candidates yet.</h2>
+            <p>The engine is not finding a non-held stock with enough opportunity and fit to justify attention.</p>
+          </div>
+        ) : (
+          <div className="stack-list">
+            {buyCandidates.map((card) => (
+              <Link key={card.symbol} to={`/stocks/${card.symbol}`} className="recommendation-card">
+                <div className="recommendation-card__header">
+                  <strong>{card.symbol}</strong>
+                  <Tag tone={toneForAction(card.action)}>{card.action}</Tag>
+                </div>
+                <p>
+                  Buy readiness is {buyPotentialScore(card)}/100. {buyBlocker(card)}
+                </p>
+                <div className="recommendation-card__metrics">
+                  <ScorePill label="Readiness" score={buyPotentialScore(card)} />
+                  <ScorePill label="Base 12M" score={formatReturn(card.expectedReturns[2].base)} />
+                  <ScorePill label="Risk" score={card.risk.overall} />
+                  <ScorePill label="Fit" score={card.portfolioFit.score} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Panel>
+
+      <div id="ideas-buckets" className="recommendation-grid page-section">
         {buckets.map(([action, cards]) => (
           <Panel
             key={action}
@@ -1359,6 +1634,7 @@ export function PlannerPage() {
     model.portfolioValue,
     inputs,
   );
+  const nextUpCandidates = potentialBuyRows(model).slice(0, 5);
 
   return (
     <div className="page">
@@ -1367,8 +1643,22 @@ export function PlannerPage() {
         summary="Tell the app how much cash you want to put to work and it will suggest how much to invest now, what to keep in reserve, and which stocks deserve that cash."
       />
 
+      <PageJumpNav
+        items={[
+          { href: '#plan-inputs', label: 'Inputs', detail: 'Set your posture' },
+          { href: '#plan-output', label: 'Deployment', detail: 'How much to invest' },
+          { href: '#plan-candidates', label: 'Candidates', detail: 'Where the cash would go' },
+          { href: '#plan-avoid', label: 'Avoid list', detail: 'What is blocked' },
+        ]}
+      />
+
       <div className="two-column-layout">
-        <Panel title="Planner Inputs" eyebrow="Controls" subtitle="Change these inputs to see how your plan changes.">
+        <Panel
+          id="plan-inputs"
+          title="Planner Inputs"
+          eyebrow="Controls"
+          subtitle="Change these inputs to see how your plan changes."
+        >
           <div className="filters filters--stacked">
             <label>
               Cash To Invest
@@ -1454,7 +1744,7 @@ export function PlannerPage() {
           </div>
         </Panel>
 
-        <Panel title="Recommended Deployment" eyebrow="Output" subtitle={plan.posture}>
+        <Panel id="plan-output" title="Recommended Deployment" eyebrow="Output" subtitle={plan.posture}>
           <div className="planner-callout">
             <h3>
               Deploy {formatCurrency(plan.deployNow)} now and keep {formatCurrency(plan.holdBack)} back.
@@ -1472,22 +1762,52 @@ export function PlannerPage() {
       </div>
 
       <div className="dashboard-grid">
-        <Panel title="Suggested Allocations" eyebrow="Capital Plan" subtitle="Candidates are selected and sized under fit, risk, and reserve constraints.">
-          <Table
-            columns={['Symbol', 'Role', 'Dollars', 'Weight', 'Entry Style']}
-            rows={plan.allocations.map((allocation) => [
-              <Link key={allocation.symbol} to={`/stocks/${allocation.symbol}`} className="symbol-link">
-                {allocation.symbol}
-              </Link>,
-              <span key={`${allocation.symbol}-role`}>{allocation.role}</span>,
-              <span key={`${allocation.symbol}-dollars`}>{formatCurrency(allocation.dollars)}</span>,
-              <span key={`${allocation.symbol}-weight`}>{formatPercent(allocation.weight)}</span>,
-              <span key={`${allocation.symbol}-entry`}>{allocation.entryStyle}</span>,
-            ])}
-          />
+        <Panel
+          id="plan-candidates"
+          title="Suggested Allocations"
+          eyebrow="Capital Plan"
+          subtitle="Candidates are selected and sized under fit, risk, and reserve constraints."
+        >
+          {plan.allocations.length > 0 ? (
+            <Table
+              columns={['Symbol', 'Role', 'Dollars', 'Weight', 'Entry Style']}
+              rows={plan.allocations.map((allocation) => [
+                <Link key={allocation.symbol} to={`/stocks/${allocation.symbol}`} className="symbol-link">
+                  {allocation.symbol}
+                </Link>,
+                <span key={`${allocation.symbol}-role`}>{allocation.role}</span>,
+                <span key={`${allocation.symbol}-dollars`}>{formatCurrency(allocation.dollars)}</span>,
+                <span key={`${allocation.symbol}-weight`}>{formatPercent(allocation.weight)}</span>,
+                <span key={`${allocation.symbol}-entry`}>{allocation.entryStyle}</span>,
+              ])}
+            />
+          ) : nextUpCandidates.length > 0 ? (
+            <Table
+              columns={['Symbol', 'Current Label', 'Readiness', 'Base 12M', 'Main Blocker']}
+              rows={nextUpCandidates.map((card) => [
+                <Link key={card.symbol} to={`/stocks/${card.symbol}`} className="symbol-link">
+                  {card.symbol}
+                </Link>,
+                <span key={`${card.symbol}-action`}>{card.action}</span>,
+                <span key={`${card.symbol}-readiness`}>{buyPotentialScore(card)}/100</span>,
+                <span key={`${card.symbol}-base`}>{formatReturn(card.expectedReturns[2].base)}</span>,
+                <span key={`${card.symbol}-blocker`}>{buyBlocker(card)}</span>,
+              ])}
+            />
+          ) : (
+            <div className="empty-state empty-state--compact">
+              <h2>No next-up names yet.</h2>
+              <p>The planner does not see any non-held stock worth moving into the candidate queue right now.</p>
+            </div>
+          )}
         </Panel>
 
-        <Panel title="What Not To Buy" eyebrow="Avoid List" subtitle="Names blocked by portfolio fit, risk, sector rules, or event timing.">
+        <Panel
+          id="plan-avoid"
+          title="What Not To Buy"
+          eyebrow="Avoid List"
+          subtitle="Names blocked by portfolio fit, risk, sector rules, or event timing."
+        >
           <div className="stack-list">
             {plan.avoids.map((item) => (
               <div key={item.symbol} className="text-card">
@@ -1540,13 +1860,14 @@ export function JournalPage() {
         summary="Write down why you bought something, what would prove you wrong, and what the system said at the time."
       />
 
-      <div className="stack-grid">
+      <div className="stack-grid journal-stack">
         {dataset.journal.map((entry) => (
           <Panel
             key={entry.id}
             title={`${entry.symbol} - ${entry.decisionType}`}
             eyebrow={entry.decisionDate}
             subtitle={entry.systemSummary}
+            className="journal-entry"
           >
             <div className="journal-block">
               <div>
@@ -1618,7 +1939,16 @@ export function StockPage() {
         meta={<Tag tone={toneForAction(scorecard.action)}>{scorecard.action}</Tag>}
       />
 
-      <section className="guide-grid">
+      <PageJumpNav
+        items={[
+          { href: '#stock-snapshot', label: 'Snapshot', detail: 'Rating and live data' },
+          { href: '#stock-scenarios', label: 'Scenarios', detail: 'Bull, base, bear' },
+          { href: '#stock-explanation', label: 'Explanation', detail: 'Why the score looks like this' },
+          { href: '#stock-trend', label: 'Trend', detail: 'Price and score context' },
+        ]}
+      />
+
+      <section id="stock-snapshot" className="guide-grid page-section">
         <div className="guide-card">
           <div className="guide-card__eyebrow">Overall rating</div>
           <strong>{scorecard.composite}/100</strong>
@@ -1666,6 +1996,7 @@ export function StockPage() {
       </div>
 
       <Panel
+        id="stock-live"
         title="Active Market Data"
         eyebrow="Live Status"
         subtitle={
@@ -1717,7 +2048,12 @@ export function StockPage() {
           </div>
         </Panel>
 
-        <Panel title="Expected Return Scenarios" eyebrow="Range Of Outcomes" subtitle="These are ranges, not promises. The goal is to show what could happen, not pretend we know the future.">
+        <Panel
+          id="stock-scenarios"
+          title="Expected Return Scenarios"
+          eyebrow="Range Of Outcomes"
+          subtitle="These are ranges, not promises. The goal is to show what could happen, not pretend we know the future."
+        >
           <Table
             columns={['Horizon', 'Bear', 'Base', 'Bull', 'P(Up)', 'P(Outperform)', 'P(Drawdown)']}
             rows={scorecard.expectedReturns.map((scenario) => [
@@ -1732,7 +2068,12 @@ export function StockPage() {
           />
         </Panel>
 
-        <Panel title="Plain-English Explanation" eyebrow="Why The System Thinks This" subtitle={scorecard.explanation.summary}>
+        <Panel
+          id="stock-explanation"
+          title="Plain-English Explanation"
+          eyebrow="Why The System Thinks This"
+          subtitle={scorecard.explanation.summary}
+        >
           <div className="triple-columns">
             <div>
               <h3>Top drivers</h3>
@@ -1763,7 +2104,7 @@ export function StockPage() {
           </div>
         </Panel>
 
-        <Panel title="Trend Context" eyebrow="Context" subtitle="These charts help you see the recent path of price and model score.">
+        <Panel id="stock-trend" title="Trend Context" eyebrow="Context" subtitle="These charts help you see the recent path of price and model score.">
           <div className="history-stack">
             <div>
               <div className="history-stack__label">Price history</div>

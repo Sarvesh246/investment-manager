@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import type { PropsWithChildren, ReactNode } from 'react';
 
 export function Panel({
+  id,
   title,
   eyebrow,
   subtitle,
@@ -9,6 +10,7 @@ export function Panel({
   className,
   children,
 }: PropsWithChildren<{
+  id?: string;
   title: string;
   eyebrow?: string;
   subtitle?: string;
@@ -16,7 +18,7 @@ export function Panel({
   className?: string;
 }>) {
   return (
-    <section className={clsx('panel', className)}>
+    <section id={id} className={clsx('panel', className)}>
       <header className="panel__header">
         <div>
           {eyebrow ? <div className="panel__eyebrow">{eyebrow}</div> : null}
@@ -27,6 +29,23 @@ export function Panel({
       </header>
       {children}
     </section>
+  );
+}
+
+export function PageJumpNav({
+  items,
+}: {
+  items: Array<{ href: string; label: string; detail?: string }>;
+}) {
+  return (
+    <nav className="page-jump-nav" aria-label="Jump to section">
+      {items.map((item) => (
+        <a key={item.href} href={item.href} className="page-jump-nav__link">
+          <strong>{item.label}</strong>
+          {item.detail ? <span>{item.detail}</span> : null}
+        </a>
+      ))}
+    </nav>
   );
 }
 
