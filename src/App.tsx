@@ -1,4 +1,5 @@
 import { createHashRouter, isRouteErrorResponse, RouterProvider, useRouteError } from 'react-router-dom';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import {
   AlertsPage,
   AppShell,
@@ -8,9 +9,11 @@ import {
   PlannerPage,
   PortfolioPage,
   RecommendationsPage,
+  SettingsPage,
   StockPage,
 } from './pages';
 import { PortfolioWorkspaceProvider } from './runtime/portfolioWorkspace';
+import { ToastProvider } from './runtime/toastContext';
 
 function RouterErrorPage() {
   const error = useRouteError();
@@ -68,6 +71,10 @@ const router = createHashRouter([
         element: <AlertsPage />,
       },
       {
+        path: 'settings',
+        element: <SettingsPage />,
+      },
+      {
         path: 'journal',
         element: <JournalPage />,
       },
@@ -81,8 +88,12 @@ const router = createHashRouter([
 
 export default function App() {
   return (
-    <PortfolioWorkspaceProvider>
-      <RouterProvider router={router} />
-    </PortfolioWorkspaceProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <PortfolioWorkspaceProvider>
+          <RouterProvider router={router} />
+        </PortfolioWorkspaceProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }

@@ -199,7 +199,7 @@ function positiveSeriesScore(points: TimeseriesPoint[]) {
   return clamp(positiveRatio * 70 + clamp((latest / median) * 30, 0, 30), 0, 100);
 }
 
-function updateFromFundamentals(seed: SecuritySeed, fundamentals?: LiveFundamentalSnapshot) {
+function updateFromFundamentals(seed: SecuritySeed, fundamentals?: LiveFundamentalSnapshot): SecuritySeed {
   if (!fundamentals) {
     return seed;
   }
@@ -231,6 +231,16 @@ function updateFromFundamentals(seed: SecuritySeed, fundamentals?: LiveFundament
     ...seed,
     fundamentalsLastUpdated:
       fundamentals.annualTotalRevenue.at(-1)?.asOfDate ?? seed.fundamentalsLastUpdated,
+    dataQuality: {
+      sourceMode: 'blended',
+      coverage: Math.max(seed.dataQuality?.coverage ?? 72, 84),
+      inferredSignals: Math.max((seed.dataQuality?.inferredSignals ?? 0) - 1, 0),
+      missingCoreFields: seed.dataQuality?.missingCoreFields?.filter((field) => field !== 'fundamentals') ?? [],
+      notes: [
+        ...(seed.dataQuality?.notes ?? []),
+        'Fundamental fields refreshed from the latest available provider timeseries.',
+      ].slice(-4),
+    },
     metrics: {
       ...seed.metrics,
       revenueGrowth: revenueGrowth ?? seed.metrics.revenueGrowth,
@@ -255,7 +265,7 @@ function updateFromPrice(
   seed: SecuritySeed,
   priceSnapshot: LivePriceSnapshot | undefined,
   benchmarkBars: HistoricalBar[],
-) {
+): SecuritySeed {
   if (!priceSnapshot || priceSnapshot.bars.length < 220) {
     return seed;
   }
@@ -279,8 +289,19 @@ function updateFromPrice(
     ...seed,
     name: priceSnapshot.longName ?? seed.name,
     price: priceSnapshot.price,
+    priceAsOf: priceSnapshot.bars.at(-1)?.date ?? seed.priceAsOf,
     marketCap: seed.marketCap * priceScale,
     priceHistory: sampleHistory(priceSnapshot.bars),
+    dataQuality: {
+      sourceMode: seed.dataQuality?.sourceMode === 'seeded' ? 'blended' : seed.dataQuality?.sourceMode ?? 'live',
+      coverage: Math.max(seed.dataQuality?.coverage ?? 72, 90),
+      inferredSignals: seed.dataQuality?.inferredSignals ?? 0,
+      missingCoreFields: seed.dataQuality?.missingCoreFields ?? [],
+      notes: [
+        ...(seed.dataQuality?.notes ?? []),
+        'Price history and risk features refreshed from point-in-time daily bars.',
+      ].slice(-4),
+    },
     metrics: {
       ...seed.metrics,
       ret1m: percentChange(closes, 21),
@@ -320,7 +341,7 @@ function updateFromPrice(
 function updateValuationContext(
   securities: SecuritySeed[],
   baseLookup: Map<string, SecuritySeed>,
-) {
+): SecuritySeed[] {
   return securities.map((security) => {
     const sameSector = securities.filter((candidate) => candidate.sector === security.sector);
     const cheaperThanSector = sameSector.filter((candidate) => candidate.metrics.pe <= security.metrics.pe).length;
@@ -346,6 +367,13 @@ function updateValuationContext(
           security.metrics.epsGrowth > 0.02
             ? security.metrics.pe / Math.max(security.metrics.epsGrowth * 100, 1)
             : security.metrics.growthAdjustedValuation,
+      },
+      dataQuality: {
+        sourceMode: security.dataQuality?.sourceMode ?? 'blended',
+        coverage: security.dataQuality?.coverage ?? 80,
+        inferredSignals: security.dataQuality?.inferredSignals ?? 0,
+        missingCoreFields: security.dataQuality?.missingCoreFields ?? [],
+        notes: security.dataQuality?.notes ?? [],
       },
     };
   });

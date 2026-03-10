@@ -88,6 +88,8 @@ function sampleSeries(values: number[], points = 8) {
 }
 
 export function createProvisionalSecurity(symbol: string, price: number): SecuritySeed {
+  const today = new Date().toISOString().slice(0, 10);
+
   return {
     symbol,
     name: symbol,
@@ -98,7 +100,8 @@ export function createProvisionalSecurity(symbol: string, price: number): Securi
     marketCapBucket: 'mid',
     securityType: 'stock',
     price,
-    fundamentalsLastUpdated: new Date().toISOString().slice(0, 10),
+    fundamentalsLastUpdated: today,
+    priceAsOf: today,
     factors: {
       growth: 50,
       quality: 50,
@@ -167,6 +170,13 @@ export function createProvisionalSecurity(symbol: string, price: number): Securi
     previousDownside: 0.15,
     thesisNotes: [],
     watchPoints: ['Coverage is provisional until live data finishes loading.'],
+    dataQuality: {
+      sourceMode: 'derived',
+      coverage: 42,
+      inferredSignals: 4,
+      missingCoreFields: ['fundamentals', 'history'],
+      notes: ['User-added provisional security generated from limited quote context.'],
+    },
   };
 }
 
@@ -216,6 +226,7 @@ export function buildSecurityFromLiveData(
           1_000_000_000
         : 25,
     price: priceSnapshot.price,
+    priceAsOf: priceSnapshot.bars.at(-1)?.date ?? new Date().toISOString().slice(0, 10),
     fundamentalsLastUpdated:
       fundamentals?.annualTotalRevenue.at(-1)?.asOfDate ??
       new Date().toISOString().slice(0, 10),
@@ -279,6 +290,17 @@ export function buildSecurityFromLiveData(
       liquidityScore: 72,
     },
     priceHistory: sampleSeries(closes),
+    dataQuality: {
+      sourceMode: fundamentals ? 'blended' : 'derived',
+      coverage: fundamentals ? 78 : 58,
+      inferredSignals: fundamentals ? 2 : 4,
+      missingCoreFields: fundamentals ? [] : ['fundamentals'],
+      notes: [
+        fundamentals
+          ? 'Live market data blended with available public fundamentals.'
+          : 'Live market data available, but most factor coverage is inferred from price history.',
+      ],
+    },
   } satisfies SecuritySeed;
 }
 
@@ -297,12 +319,14 @@ export function mergeSecurityWithLiveData(
     industry: priceSnapshot.exchangeName ?? seed.industry,
     marketCap: derived.marketCap || seed.marketCap,
     price: priceSnapshot.price,
+    priceAsOf: priceSnapshot.bars.at(-1)?.date ?? seed.priceAsOf,
     fundamentalsLastUpdated: derived.fundamentalsLastUpdated ?? seed.fundamentalsLastUpdated,
     metrics: {
       ...seed.metrics,
       ...derived.metrics,
     },
     priceHistory: derived.priceHistory.length > 0 ? derived.priceHistory : seed.priceHistory,
+    dataQuality: derived.dataQuality ?? seed.dataQuality,
   } satisfies SecuritySeed;
 }
 
@@ -318,10 +342,21 @@ export function applyQuoteToSecurity(seed: SecuritySeed, quote: LiveQuoteSnapsho
     name: quote.longName ?? seed.name,
     industry: quote.exchangeName ?? seed.industry,
     price: quote.price,
+    priceAsOf: quote.timestamp.slice(0, 10),
     marketCap:
       Number.isFinite(priceMultiplier) && priceMultiplier > 0
         ? seed.marketCap * priceMultiplier
         : seed.marketCap,
     priceHistory: nextHistory,
+    dataQuality: {
+      sourceMode: seed.dataQuality?.sourceMode === 'seeded' ? 'blended' : seed.dataQuality?.sourceMode ?? 'live',
+      coverage: Math.max(seed.dataQuality?.coverage ?? 72, 76),
+      inferredSignals: seed.dataQuality?.inferredSignals ?? 0,
+      missingCoreFields: seed.dataQuality?.missingCoreFields ?? [],
+      notes: [
+        ...(seed.dataQuality?.notes ?? []),
+        `${quote.sessionLabel} quote applied at ${quote.timestamp}.`,
+      ].slice(-4),
+    },
   } satisfies SecuritySeed;
 }

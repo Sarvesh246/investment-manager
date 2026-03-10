@@ -32,22 +32,29 @@ export function formatCompactCurrency(value: number) {
 }
 
 export function formatPercent(value: number, digits = 1) {
-  return `${value.toFixed(digits)}%`;
+  const rounded = Math.round(value * Math.pow(10, digits)) / Math.pow(10, digits);
+  return `${rounded.toFixed(digits)}%`;
 }
 
 export function formatReturn(value: number) {
   const prefix = value >= 0 ? '+' : '';
-  return `${prefix}${(value * 100).toFixed(1)}%`;
+  const pct = Math.round(value * 1000) / 10;
+  return `${prefix}${pct.toFixed(1)}%`;
 }
 
-export function formatClockTime(value: string | null) {
-  if (!value) {
+export function formatClockTime(value: string | Date | null) {
+  if (value == null) {
     return 'Waiting for first refresh';
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'Invalid date';
   }
 
   return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     second: '2-digit',
-  }).format(new Date(value));
+  }).format(date);
 }

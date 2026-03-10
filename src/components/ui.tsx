@@ -1,5 +1,7 @@
 import clsx from 'clsx';
 import type { PropsWithChildren, ReactNode } from 'react';
+import { HelpCircle } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 
 export function Panel({
   id,
@@ -78,15 +80,24 @@ export function MetricCard({
   value,
   detail,
   tone = 'neutral',
+  tooltip,
 }: {
   label: string;
   value: string;
   detail: string;
   tone?: 'positive' | 'negative' | 'neutral';
+  tooltip?: string;
 }) {
   return (
     <div className={clsx('metric-card', `metric-card--${tone}`)}>
-      <div className="metric-card__label">{label}</div>
+      <div className="metric-card__label">
+        {label}
+        {tooltip ? (
+          <Tooltip content={tooltip}>
+            <HelpCircle size={12} className="metric-card__help" aria-label="Help" />
+          </Tooltip>
+        ) : null}
+      </div>
       <div className="metric-card__value">{value}</div>
       <div className="metric-card__detail">{detail}</div>
     </div>
@@ -174,8 +185,17 @@ export function SignalBar({
 export function Tag({
   children,
   tone = 'neutral',
-}: PropsWithChildren<{ tone?: 'positive' | 'negative' | 'warning' | 'neutral' }>) {
-  return <span className={clsx('tag', `tag--${tone}`)}>{children}</span>;
+  tooltip,
+}: PropsWithChildren<{
+  tone?: 'positive' | 'negative' | 'warning' | 'neutral';
+  tooltip?: string;
+}>) {
+  const content = <span className={clsx('tag', `tag--${tone}`)}>{children}</span>;
+  return tooltip ? (
+    <Tooltip content={tooltip}>{content}</Tooltip>
+  ) : (
+    content
+  );
 }
 
 export function Sparkline({

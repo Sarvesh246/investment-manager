@@ -1,0 +1,16 @@
+{
+  "name": "Investment Center",
+  "short_name": "Investment Center",
+  "description": "Personal investing command center with portfolio tracking, recommendations, and risk analysis.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0f0d",
+  "theme_color": "#00c96b",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

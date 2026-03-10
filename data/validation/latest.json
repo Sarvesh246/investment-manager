@@ -1,0 +1,68 @@
+{
+  "generatedAt": "2026-03-09T05:14:19.382Z",
+  "snapshotCount": 3,
+  "pairCount": 2,
+  "hitRate": 0.0417,
+  "averageForwardReturn": 0,
+  "averageBenchmarkRelativeReturn": 0,
+  "averageTurnover": 0,
+  "brierScore": 0.2251,
+  "scoreDeciles": [
+    {
+      "decile": 4,
+      "count": 2,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "decile": 5,
+      "count": 10,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "decile": 6,
+      "count": 12,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0.0833
+    }
+  ],
+  "calibration": [
+    {
+      "bucket": "30-40%",
+      "count": 6,
+      "predicted": 0.3577,
+      "realized": 0,
+      "brier": 0.1291
+    },
+    {
+      "bucket": "40-50%",
+      "count": 8,
+      "predicted": 0.459,
+      "realized": 0,
+      "brier": 0.2108
+    },
+    {
+      "bucket": "50-60%",
+      "count": 10,
+      "predicted": 0.556,
+      "realized": 0.1,
+      "brier": 0.2941
+    }
+  ],
+  "regimes": [
+    {
+      "regime": "Sideways / low conviction",
+      "count": 24,
+      "avgForwardReturn": 0,
+      "hitRate": 0.0417
+    }
+  ],
+  "notes": [
+    "Validation uses point-in-time snapshot pairs and measures forward price change into the next available snapshot.",
+    "This is intentionally simple and leakage-aware, but it is only as strong as the snapshot history you have recorded."
+  ]
+}

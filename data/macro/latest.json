@@ -1,0 +1,11 @@
+{
+  "asOf": "2026-03-05",
+  "yield2y": 3.57,
+  "yield10y": 4.13,
+  "curve2s10s": 0.56,
+  "unemploymentRate": 4.4,
+  "inflationYoY": 2.4,
+  "highYieldSpread": 3,
+  "narrative": "The 2s10s curve is 0.56 points positive, which is less restrictive for risk assets. Credit spreads are contained enough that broad stress is not the lead macro signal. Inflation is running near 2.4% year over year and unemployment is 4.4%.",
+  "riskTone": 0.7
+}

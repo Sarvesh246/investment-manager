@@ -1,0 +1,50 @@
+[
+  {
+    "symbol": "MSFT",
+    "status": "synced"
+  },
+  {
+    "symbol": "AVGO",
+    "status": "synced"
+  },
+  {
+    "symbol": "V",
+    "status": "synced"
+  },
+  {
+    "symbol": "WM",
+    "status": "synced"
+  },
+  {
+    "symbol": "LLY",
+    "status": "synced"
+  },
+  {
+    "symbol": "PANW",
+    "status": "synced"
+  },
+  {
+    "symbol": "LIN",
+    "status": "synced"
+  },
+  {
+    "symbol": "MELI",
+    "status": "synced"
+  },
+  {
+    "symbol": "NVDA",
+    "status": "synced"
+  },
+  {
+    "symbol": "NEE",
+    "status": "synced"
+  },
+  {
+    "symbol": "UBER",
+    "status": "synced"
+  },
+  {
+    "symbol": "XOM",
+    "status": "synced"
+  }
+]

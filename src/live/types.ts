@@ -16,6 +16,8 @@ export interface LivePriceSnapshot {
   bars: HistoricalBar[];
 }
 
+export type MarketSession = 'regular' | 'after-hours' | 'pre-market';
+
 export interface LiveQuoteSnapshot {
   symbol: string;
   price: number;
@@ -23,6 +25,10 @@ export interface LiveQuoteSnapshot {
   volume: number;
   longName?: string;
   exchangeName?: string;
+  regularPrice: number;
+  session: MarketSession;
+  sessionLabel: 'Regular' | 'After hours' | 'Pre-market';
+  timestamp: string;
 }
 
 export interface TimeseriesPoint {

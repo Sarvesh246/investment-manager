@@ -4,6 +4,7 @@ import type {
   HistoricalBar,
   LiveFundamentalSnapshot,
   LivePriceSnapshot,
+  MarketSession,
   LiveProviderRecord,
   LiveQuoteSnapshot,
   TimeseriesPoint,
@@ -25,8 +26,19 @@ const fundamentalsTypes = [
 const yahooBaseUrl =
   typeof window === 'undefined' ? 'https://query1.finance.yahoo.com' : '/api/yahoo';
 
+export class YahooRateLimitError extends Error {
+  constructor(message = 'Yahoo Finance rate limit exceeded. Please try again in a few minutes.') {
+    super(message);
+    this.name = 'YahooRateLimitError';
+  }
+}
+
 async function getJson<T>(url: string) {
   const response = await fetch(url);
+
+  if (response.status === 429) {
+    throw new YahooRateLimitError();
+  }
 
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
@@ -87,46 +99,133 @@ function chunk<T>(values: T[], size: number) {
   return chunks;
 }
 
-function mapSparkResultsToQuotes(
-  results:
-    | Array<{
-        symbol: string;
-        response?: Array<{
-          meta?: {
-            symbol: string;
-            regularMarketPrice?: number;
-            chartPreviousClose?: number;
-            previousClose?: number;
-            regularMarketVolume?: number;
-            longName?: string;
-            shortName?: string;
-            fullExchangeName?: string;
-            exchangeName?: string;
-          };
-        }>;
-      }>
-    | undefined,
+interface TradingWindow {
+  start?: number;
+  end?: number;
+}
+
+interface ChartQuoteMeta {
+  symbol: string;
+  regularMarketPrice?: number;
+  chartPreviousClose?: number;
+  previousClose?: number;
+  regularMarketVolume?: number;
+  regularMarketTime?: number;
+  longName?: string;
+  shortName?: string;
+  fullExchangeName?: string;
+  exchangeName?: string;
+  currentTradingPeriod?: {
+    pre?: TradingWindow;
+    regular?: TradingWindow;
+    post?: TradingWindow;
+  };
+}
+
+interface ChartQuoteResult {
+  meta?: ChartQuoteMeta;
+  timestamp?: number[];
+  indicators?: {
+    quote?: Array<{
+      close?: Array<number | null>;
+      volume?: Array<number | null>;
+    }>;
+  };
+}
+
+function latestChartPoint(
+  timestamps: number[] | undefined,
+  closes: Array<number | null> | undefined,
+  volumes: Array<number | null> | undefined,
 ) {
-  const quotes: Record<string, LiveQuoteSnapshot> = {};
+  if (!timestamps || !closes) {
+    return undefined;
+  }
 
-  for (const result of results ?? []) {
-    const meta = result.response?.[0]?.meta;
+  for (let index = Math.min(timestamps.length, closes.length) - 1; index >= 0; index -= 1) {
+    const close = closes[index];
 
-    if (!meta || meta.regularMarketPrice == null) {
+    if (close == null || !Number.isFinite(close)) {
       continue;
     }
 
-    quotes[meta.symbol.toUpperCase()] = {
-      symbol: meta.symbol.toUpperCase(),
-      price: meta.regularMarketPrice,
-      previousClose: meta.chartPreviousClose ?? meta.previousClose ?? meta.regularMarketPrice,
-      volume: meta.regularMarketVolume ?? 0,
-      longName: meta.longName ?? meta.shortName,
-      exchangeName: meta.fullExchangeName ?? meta.exchangeName,
+    return {
+      timestamp: timestamps[index],
+      close,
+      volume: volumes?.[index] ?? 0,
     };
   }
 
-  return quotes;
+  return undefined;
+}
+
+function sessionLabel(session: MarketSession) {
+  switch (session) {
+    case 'after-hours':
+      return 'After hours';
+    case 'pre-market':
+      return 'Pre-market';
+    case 'regular':
+    default:
+      return 'Regular';
+  }
+}
+
+function determineSession(timestamp: number | undefined, periods?: ChartQuoteMeta['currentTradingPeriod']) {
+  if (!timestamp || !periods) {
+    return 'regular' satisfies MarketSession;
+  }
+
+  const pre = periods.pre;
+  const post = periods.post;
+
+  if (post?.start != null && timestamp >= post.start && timestamp <= (post.end ?? post.start)) {
+    return 'after-hours' satisfies MarketSession;
+  }
+
+  if (pre?.start != null && timestamp >= pre.start && timestamp < (pre.end ?? pre.start)) {
+    return 'pre-market' satisfies MarketSession;
+  }
+
+  return 'regular' satisfies MarketSession;
+}
+
+function mapChartResultToQuote(result: ChartQuoteResult | undefined) {
+  const meta = result?.meta;
+
+  if (!meta?.symbol) {
+    return undefined;
+  }
+
+  const quoteSeries = result?.indicators?.quote?.[0];
+  const latestPoint = latestChartPoint(
+    result?.timestamp,
+    quoteSeries?.close,
+    quoteSeries?.volume,
+  );
+  const regularPrice = meta.regularMarketPrice ?? latestPoint?.close;
+
+  if (regularPrice == null) {
+    return undefined;
+  }
+
+  const session = determineSession(latestPoint?.timestamp, meta.currentTradingPeriod);
+  const activePrice =
+    session === 'regular' ? regularPrice : latestPoint?.close ?? regularPrice;
+  const activeTimestamp = latestPoint?.timestamp ?? meta.regularMarketTime ?? Math.floor(Date.now() / 1000);
+
+  return {
+    symbol: meta.symbol.toUpperCase(),
+    price: activePrice,
+    previousClose: meta.chartPreviousClose ?? meta.previousClose ?? regularPrice,
+    volume: latestPoint?.volume ?? meta.regularMarketVolume ?? 0,
+    longName: meta.longName ?? meta.shortName,
+    exchangeName: meta.fullExchangeName ?? meta.exchangeName,
+    regularPrice,
+    session,
+    sessionLabel: sessionLabel(session),
+    timestamp: new Date(activeTimestamp * 1000).toISOString(),
+  } satisfies LiveQuoteSnapshot;
 }
 
 export class YahooPublicProvider {
@@ -140,76 +239,33 @@ export class YahooPublicProvider {
 
     const unique = [...new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean))];
     const total = unique.length;
-    const batches = chunk(unique, 25);
+    const batches = chunk(unique, 5);
     const quotes: Record<string, LiveQuoteSnapshot> = {};
     let verified = 0;
 
     for (const batch of batches) {
-      try {
-        const response = await getJson<{
-          spark?: {
-            result?: Array<{
-              symbol: string;
-              response?: Array<{
-                meta?: {
-                  symbol: string;
-                  regularMarketPrice?: number;
-                  chartPreviousClose?: number;
-                  previousClose?: number;
-                  regularMarketVolume?: number;
-                  longName?: string;
-                  shortName?: string;
-                  fullExchangeName?: string;
-                  exchangeName?: string;
-                };
-              }>;
-            }>;
-          };
-        }>(
-          `${yahooBaseUrl}/v7/finance/spark?symbols=${encodeURIComponent(batch.join(','))}&range=1d&interval=1m`,
-        );
+      const batchResults = await Promise.allSettled(
+        batch.map(async (symbol) => {
+          const response = await getJson<{
+            chart: {
+              result?: ChartQuoteResult[];
+            };
+          }>(
+            `${yahooBaseUrl}/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m&includePrePost=true`,
+          );
 
-        Object.assign(quotes, mapSparkResultsToQuotes(response.spark?.result));
-        verified += batch.length;
-        progress?.(verified, total);
-      } catch {
-        if (batch.length === 1) {
-          continue;
+          return mapChartResultToQuote(response.chart.result?.[0]);
+        }),
+      );
+
+      batchResults.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value) {
+          quotes[result.value.symbol] = result.value;
         }
+      });
 
-        for (const symbol of batch) {
-          try {
-            const response = await getJson<{
-              spark?: {
-                result?: Array<{
-                  symbol: string;
-                  response?: Array<{
-                    meta?: {
-                      symbol: string;
-                      regularMarketPrice?: number;
-                      chartPreviousClose?: number;
-                      previousClose?: number;
-                      regularMarketVolume?: number;
-                      longName?: string;
-                      shortName?: string;
-                      fullExchangeName?: string;
-                      exchangeName?: string;
-                    };
-                  }>;
-                }>;
-              };
-            }>(
-              `${yahooBaseUrl}/v7/finance/spark?symbols=${encodeURIComponent(symbol)}&range=1d&interval=1m`,
-            );
-
-            Object.assign(quotes, mapSparkResultsToQuotes(response.spark?.result));
-            verified += 1;
-            progress?.(verified, total);
-          } catch {
-            continue;
-          }
-        }
-      }
+      verified += batch.length;
+      progress?.(Math.min(verified, total), total);
     }
 
     return quotes;

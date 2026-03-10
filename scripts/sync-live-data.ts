@@ -1,10 +1,13 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCommandCenterModel } from '../src/domain/engine';
+import { buildValidationReport } from '../src/domain/validation';
 import type { MockDataset } from '../src/domain/types';
 import { currentDataset } from '../src/data/currentDataset';
 import { buildLiveDataset } from '../src/live/buildLiveDataset';
+import { fetchMacroSnapshot } from '../src/live/fredPublic';
+import { fetchSecFundamentalSnapshot } from '../src/live/secPublic';
 import { YahooPublicProvider } from '../src/live/yahooPublic';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -37,11 +40,57 @@ async function writeSnapshotFiles(dataset: MockDataset) {
   );
 }
 
+async function writeSupplementaryData(dataset: MockDataset) {
+  if (dataset.macroSnapshot) {
+    const macroDir = path.join(repoRoot, 'data', 'macro');
+    await mkdir(macroDir, { recursive: true });
+    await writeFile(
+      path.join(macroDir, 'latest.json'),
+      `${JSON.stringify(dataset.macroSnapshot, null, 2)}\n`,
+      'utf8',
+    );
+  }
+
+  if (dataset.validationReport) {
+    const validationDir = path.join(repoRoot, 'data', 'validation');
+    await mkdir(validationDir, { recursive: true });
+    await writeFile(
+      path.join(validationDir, 'latest.json'),
+      `${JSON.stringify(dataset.validationReport, null, 2)}\n`,
+      'utf8',
+    );
+  }
+}
+
+async function loadHistoricalSnapshots() {
+  const snapshotDir = path.join(repoRoot, 'data', 'snapshots');
+
+  try {
+    const files = await readdir(snapshotDir);
+
+    return Promise.all(
+      files
+        .filter((file) => file.endsWith('.json') && file !== 'latest.json')
+        .map(async (file) => {
+          const raw = await readFile(path.join(snapshotDir, file), 'utf8');
+          return JSON.parse(raw) as MockDataset;
+        }),
+    );
+  } catch {
+    return [] as MockDataset[];
+  }
+}
+
 async function main() {
   const provider = new YahooPublicProvider();
   const baseDataset = currentDataset;
   const providerNotes: string[] = [];
   const snapshotId = timestampId();
+  const secUserAgent = process.env.SEC_USER_AGENT?.trim() || undefined;
+  const macroSnapshot = await fetchMacroSnapshot().catch((error) => {
+    providerNotes.push(`FRED macro snapshot unavailable: ${(error as Error).message}`);
+    return undefined;
+  });
 
   console.log(`Syncing ${baseDataset.securities.length} securities from Yahoo public endpoints...`);
 
@@ -50,6 +99,16 @@ async function main() {
 
   for (const security of baseDataset.securities) {
     const record = await provider.fetchSecurityRecord(security);
+    const secFundamentals = await fetchSecFundamentalSnapshot(security.symbol, secUserAgent).catch((error) => {
+      providerNotes.push(`SEC fundamentals unavailable for ${security.symbol}: ${(error as Error).message}`);
+      return undefined;
+    });
+
+    if (secFundamentals) {
+      record.fundamentalsSnapshot = secFundamentals;
+      providerNotes.push(`SEC company facts preferred for ${security.symbol} core annual fundamentals.`);
+    }
+
     providerNotes.push(...record.notes);
     providerRecords.push(record);
     console.log(`Fetched ${security.symbol}${record.notes.length ? ` with ${record.notes.length} note(s)` : ''}`);
@@ -60,6 +119,7 @@ async function main() {
   let dataset = {
     ...liveResult.dataset,
     snapshotId,
+    macroSnapshot,
   } satisfies MockDataset;
 
   dataset = {
@@ -87,7 +147,14 @@ async function main() {
     ],
   };
 
+  const historicalSnapshots = await loadHistoricalSnapshots();
+  dataset = {
+    ...dataset,
+    validationReport: buildValidationReport([...historicalSnapshots, dataset]),
+  };
+
   await writeSnapshotFiles(dataset);
+  await writeSupplementaryData(dataset);
   await writeLatestModule(dataset);
 
   console.log(`Snapshot persisted: ${dataset.snapshotId}`);

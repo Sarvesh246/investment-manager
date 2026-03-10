@@ -2,10 +2,22 @@
   "asOf": "2026-03-06",
   "dataMode": "blended",
   "providerSummary": "Yahoo public chart, insights, and fundamentals-timeseries endpoints blended with local point-in-time fallback data.",
-  "snapshotId": "2026-03-07T21-44-37-071Z",
-  "snapshotGeneratedAt": "2026-03-07T21:44:41.219Z",
+  "snapshotId": "2026-03-09T05-14-11-421Z",
+  "snapshotGeneratedAt": "2026-03-09T05:14:19.360Z",
   "syncNotes": [
-    "Synced 12 securities and benchmark SPY."
+    "Synced 12 securities and benchmark SPY.",
+    "SEC company facts preferred for MSFT core annual fundamentals.",
+    "SEC company facts preferred for AVGO core annual fundamentals.",
+    "SEC company facts preferred for V core annual fundamentals.",
+    "SEC company facts preferred for WM core annual fundamentals.",
+    "SEC company facts preferred for LLY core annual fundamentals.",
+    "SEC company facts preferred for PANW core annual fundamentals.",
+    "SEC company facts preferred for LIN core annual fundamentals.",
+    "SEC company facts preferred for MELI core annual fundamentals.",
+    "SEC company facts preferred for NVDA core annual fundamentals.",
+    "SEC company facts preferred for NEE core annual fundamentals.",
+    "SEC company facts preferred for UBER core annual fundamentals.",
+    "SEC company facts preferred for XOM core annual fundamentals."
   ],
   "user": {
     "id": "primary-user",
@@ -193,18 +205,18 @@
       },
       "metrics": {
         "revenueGrowth": 0.14932156232406713,
-        "revenueCagr": 0.12423114652863054,
+        "revenueCagr": 0.027903614125194043,
         "epsGrowth": 0.15514333895446875,
         "grossMargin": 0.6882374238616519,
         "operatingMargin": 0.4562195624085985,
         "fcfMargin": 0.2541884965427156,
         "fcfConsistency": 100,
         "debtToEquity": 0.32,
-        "cashToDebt": 0.49914174423978347,
+        "cashToDebt": 0.7008412319529096,
         "currentRatio": 1.3534464445042416,
         "quickRatio": 1.2451707289439022,
         "roic": 0.27,
-        "dilutionRate3y": -0.0033267045584206567,
+        "dilutionRate3y": -0.005048986888706364,
         "marginStability": 91,
         "ret1m": -0.012627081666627071,
         "ret3m": -0.14395164203577338,
@@ -256,14 +268,14 @@
         408.9599914550781
       ],
       "scoreHistory": [
-        72,
         74,
         75,
         74,
         76,
         77,
         58.4,
-        52.3
+        52.3,
+        50.8
       ],
       "previousRisk": 51,
       "previousDownside": 0.21,
@@ -274,7 +286,18 @@
       "watchPoints": [
         "Azure deceleration",
         "Margin compression from capex mix"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "AVGO",
@@ -282,11 +305,11 @@
       "sector": "Technology",
       "industry": "Semiconductors",
       "description": "Semiconductor and infrastructure software compounder with strong margins and high acquisition execution demands.",
-      "marketCap": 1603.81944,
+      "marketCap": 1603.67385,
       "marketCapBucket": "mega",
       "securityType": "stock",
-      "price": 330.48,
-      "fundamentalsLastUpdated": "2025-10-31",
+      "price": 330.45,
+      "fundamentalsLastUpdated": "2025-11-02",
       "factors": {
         "growth": 85,
         "quality": 89,
@@ -297,18 +320,18 @@
       },
       "metrics": {
         "revenueGrowth": 0.23874432853763516,
-        "revenueCagr": 0.24378426000041764,
+        "revenueCagr": 0.0410441250884197,
         "epsGrowth": 2.866141732283465,
         "grossMargin": 0.6776652527118193,
-        "operatingMargin": 0.40814250160439525,
+        "operatingMargin": 0.3988917933225852,
         "fcfMargin": 0.4212750637844945,
         "fcfConsistency": 100,
         "debtToEquity": 1.42,
-        "cashToDebt": 0.2483726357160403,
+        "cashToDebt": 5.13261421319797,
         "currentRatio": 1.7053581073782003,
         "quickRatio": 1.5689294587879443,
         "roic": 0.25,
-        "dilutionRate3y": 0.04686329923808552,
+        "dilutionRate3y": 0.11673036923566715,
         "marginStability": 82,
         "ret1m": 0.07281293323223226,
         "ret3m": -0.13170956174187132,
@@ -321,24 +344,24 @@
         "maxDd3m": -0.25406207016877747,
         "maxDd6m": -0.25406207016877747,
         "maxDd12m": -0.25406207016877747,
-        "distanceSma20": 0.2682064699939204,
-        "distanceSma50": -1.1484819368062862,
-        "distanceSma200": 3.0495307997356944,
+        "distanceSma20": 0.25910441784521915,
+        "distanceSma50": -1.1574553861584367,
+        "distanceSma200": 3.040176267164903,
         "trendSlope63d": -2.4834156470437256,
         "momentumAcceleration": 11.67161204795227,
         "abnormalVolume20d": 1.5526916201498862,
-        "pullbackQuality": 78.14565175995136,
+        "pullbackQuality": 78.07283534276175,
         "relativeStrength": 59.639089954707146,
         "beta": 1.700769513107728,
         "crashFrequency": 100,
         "tailLoss": 0.06229595199206995,
         "sectorValuationPercentile": 0,
-        "selfValuationPercentile": 19.11223300970873,
-        "growthAdjustedValuation": 0.03119574181158647,
+        "selfValuationPercentile": 19.104970845583814,
+        "growthAdjustedValuation": 0.03119290995412354,
         "fcfYield": 0.028,
-        "pe": 8.941141747572816,
-        "evSales": 3.2299339805825245,
-        "evEbitda": 5.66842718446602,
+        "pe": 8.940330097087378,
+        "evSales": 3.229640776699029,
+        "evEbitda": 5.667912621359223,
         "earningsDays": 12,
         "postEarningsGap": 0.089,
         "surpriseScore": 88,
@@ -360,14 +383,14 @@
         330.4800109863281
       ],
       "scoreHistory": [
-        73,
         74,
         76,
         75,
         74,
         72,
         50.3,
-        55.4
+        55.4,
+        54.9
       ],
       "previousRisk": 61.8,
       "previousDownside": 0.276,
@@ -378,7 +401,18 @@
       "watchPoints": [
         "Debt paydown pace",
         "Semiconductor concentration already high"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "V",
@@ -386,7 +420,7 @@
       "sector": "Financial Services",
       "industry": "Payments",
       "description": "Asset-light payments network with defensive cash generation and moderate secular growth.",
-      "marketCap": 696.28784,
+      "marketCap": 149.22594112536,
       "marketCapBucket": "mega",
       "securityType": "stock",
       "price": 317.36,
@@ -401,11 +435,11 @@
       },
       "metrics": {
         "revenueGrowth": 0.11339976618604908,
-        "revenueCagr": 0.10921242130254294,
+        "revenueCagr": 0.040393473310760486,
         "epsGrowth": 0.04928131416837789,
         "grossMargin": 0.803625,
-        "operatingMargin": 0.6639,
-        "fcfMargin": 0.539425,
+        "operatingMargin": 0.59985,
+        "fcfMargin": 0.576475,
         "fcfConsistency": 100,
         "debtToEquity": 0.56,
         "cashToDebt": 0.6818958325056613,
@@ -464,14 +498,14 @@
         317.3599853515625
       ],
       "scoreHistory": [
-        65,
         66,
         67,
         68,
         68,
         69,
         64.2,
-        56.1
+        56.1,
+        55.7
       ],
       "previousRisk": 42.1,
       "previousDownside": 0.176,
@@ -482,7 +516,18 @@
       "watchPoints": [
         "Consumer slowdown sensitivity",
         "Cross-border volume mix"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "WM",
@@ -505,18 +550,18 @@
       },
       "metrics": {
         "revenueGrowth": 0.14236504555137564,
-        "revenueCagr": 0.08563152473174229,
+        "revenueCagr": 0.017763683870673397,
         "epsGrowth": -0.01754385964912286,
         "grossMargin": 0.4043802571020473,
-        "operatingMargin": 0.18278844627836852,
-        "fcfMargin": 0.11172829709569909,
+        "operatingMargin": 0.17092524996032377,
+        "fcfMargin": 0.23976352959847644,
         "fcfConsistency": 100,
         "debtToEquity": 2.15,
-        "cashToDebt": 0.008774610381106211,
+        "cashToDebt": 0.27052489905787347,
         "currentRatio": 0.888848660391021,
         "quickRatio": 0.8177407675597393,
         "roic": 0.14,
-        "dilutionRate3y": -0.008751056395028045,
+        "dilutionRate3y": -0.004319488993758336,
         "marginStability": 92,
         "ret1m": 0.08664934421505688,
         "ret3m": 0.1383299097828925,
@@ -568,14 +613,14 @@
         246.0500030517578
       ],
       "scoreHistory": [
-        61,
         62,
         63,
         64,
         65,
         65,
         47,
-        51.4
+        51.4,
+        51
       ],
       "previousRisk": 38,
       "previousDownside": 0.15,
@@ -585,7 +630,18 @@
       ],
       "watchPoints": [
         "Leverage remains elevated for a defensive name"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "LLY",
@@ -593,7 +649,7 @@
       "sector": "Healthcare",
       "industry": "Pharmaceuticals",
       "description": "Pharma growth leader with exceptional product momentum but elevated expectation and valuation risk.",
-      "marketCap": 890.60475933,
+      "marketCap": 890.603769,
       "marketCapBucket": "mega",
       "securityType": "stock",
       "price": 990.33,
@@ -608,18 +664,18 @@
       },
       "metrics": {
         "revenueGrowth": 0.44703949559309986,
-        "revenueCagr": 0.31687374880620434,
-        "epsGrowth": 0.9557701058476171,
+        "revenueCagr": 0.01370365794077455,
+        "epsGrowth": 0.9557823129251701,
         "grossMargin": 0.8304361834333144,
         "operatingMargin": 0.45560686724251676,
-        "fcfMargin": 0.09150186409733196,
-        "fcfConsistency": 82.5,
+        "fcfMargin": 0.2579511805949769,
+        "fcfConsistency": 100,
         "debtToEquity": 2.03,
-        "cashToDebt": 0.17099969413923724,
+        "cashToDebt": 0.17784085347949496,
         "currentRatio": 1.5791132054047916,
         "quickRatio": 1.4527841489724083,
         "roic": 0.22,
-        "dilutionRate3y": -0.018178000306528386,
+        "dilutionRate3y": -0.004454488305118853,
         "marginStability": 79,
         "ret1m": -0.10548990041046247,
         "ret3m": -0.041826346852764984,
@@ -645,7 +701,7 @@
         "tailLoss": 0.06301353089491786,
         "sectorValuationPercentile": 96,
         "selfValuationPercentile": 100,
-        "growthAdjustedValuation": 0.7189426212894983,
+        "growthAdjustedValuation": 0.7189334390853335,
         "fcfYield": 0.011,
         "pe": 68.7143865248227,
         "evSales": 21.30497163120567,
@@ -671,14 +727,14 @@
         990.3300170898438
       ],
       "scoreHistory": [
-        69,
         71,
         72,
         70,
         69,
         68,
         51.5,
-        47.5
+        47.5,
+        47.1
       ],
       "previousRisk": 60.6,
       "previousDownside": 0.242,
@@ -689,7 +745,18 @@
       "watchPoints": [
         "Valuation compression risk",
         "Single-theme expectation concentration"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "PANW",
@@ -712,18 +779,18 @@
       },
       "metrics": {
         "revenueGrowth": 0.1487387106820306,
-        "revenueCagr": 0.18788250033170906,
-        "epsGrowth": -0.5762081784386617,
+        "revenueCagr": 0.053211556376385305,
+        "epsGrowth": -0.5767326732673268,
         "grossMargin": 0.734143035297945,
         "operatingMargin": 0.1347828444396248,
-        "fcfMargin": 0.37627284064414684,
+        "fcfMargin": 0.4029713170308518,
         "fcfConsistency": 100,
         "debtToEquity": 0.17,
-        "cashToDebt": 6.707865168539326,
+        "cashToDebt": 1.1391413507406478,
         "currentRatio": 0.9417626439659489,
         "quickRatio": 0.866421632448673,
         "roic": 0.18,
-        "dilutionRate3y": 0.06270851318650017,
+        "dilutionRate3y": 0.15485760701935636,
         "marginStability": 78,
         "ret1m": -0.01001678356956448,
         "ret3m": -0.14760110060603304,
@@ -775,14 +842,14 @@
         165.0500030517578
       ],
       "scoreHistory": [
-        65,
         67,
         69,
         70,
         72,
         73,
         57.7,
-        49.3
+        49.3,
+        48.4
       ],
       "previousRisk": 56.4,
       "previousDownside": 0.246,
@@ -793,7 +860,18 @@
       "watchPoints": [
         "Valuation still not cheap",
         "Execution risk on platform consolidation"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "LIN",
@@ -801,7 +879,7 @@
       "sector": "Basic Materials",
       "industry": "Industrial Gases",
       "description": "High-quality industrial gas compounder with resilient margins, stable cash generation, and portfolio diversification benefits.",
-      "marketCap": 233.68927608,
+      "marketCap": 228.8918043,
       "marketCapBucket": "large",
       "securityType": "stock",
       "price": 484.74,
@@ -816,18 +894,18 @@
       },
       "metrics": {
         "revenueGrowth": 0.029722769277382266,
-        "revenueCagr": 0.006176060609136114,
-        "epsGrowth": 0.07952755905511832,
+        "revenueCagr": 0.03403318871341021,
+        "epsGrowth": 0.07148067104303424,
         "grossMargin": 0.4883481433531454,
-        "operatingMargin": 0.2722885894191726,
+        "operatingMargin": 0.26254928499970576,
         "fcfMargin": 0.14973812746425,
-        "fcfConsistency": 98.7730870712401,
+        "fcfConsistency": 94.61538461538461,
         "debtToEquity": 0.37,
-        "cashToDebt": 0.18012754284085647,
+        "cashToDebt": 0.22492103741269628,
         "currentRatio": 0.8767601000131596,
         "quickRatio": 0.8066192920121069,
         "roic": 0.18,
-        "dilutionRate3y": -0.026084800014338994,
+        "dilutionRate3y": 0.01425132876192814,
         "marginStability": 94,
         "ret1m": 0.024105811982751524,
         "ret3m": 0.18474886341319374,
@@ -853,7 +931,7 @@
         "tailLoss": 0.028321597479072924,
         "sectorValuationPercentile": 51,
         "selfValuationPercentile": 45.30306748466258,
-        "growthAdjustedValuation": 3.826667448217204,
+        "growthAdjustedValuation": 4.2574519381494955,
         "fcfYield": 0.03,
         "pe": 30.432552147239264,
         "evSales": 6.046858895705522,
@@ -879,14 +957,14 @@
         484.739990234375
       ],
       "scoreHistory": [
-        65,
         66,
         67,
         69,
         70,
         72,
         57.3,
-        53.9
+        53.9,
+        53.5
       ],
       "previousRisk": 39.1,
       "previousDownside": 0.16,
@@ -896,7 +974,18 @@
       ],
       "watchPoints": [
         "Less explosive upside than faster growers"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "MELI",
@@ -918,19 +1007,19 @@
         "cyclical": 59
       },
       "metrics": {
-        "revenueGrowth": 0.3906242479665014,
-        "revenueCagr": 0.38907157907432843,
+        "revenueGrowth": 0.3433969743013807,
+        "revenueCagr": 0.08025195837166677,
         "epsGrowth": 0.04537012470151236,
-        "grossMargin": 0.44502128543245767,
-        "operatingMargin": 0.1107880801578237,
-        "fcfMargin": 0.3728584778320008,
+        "grossMargin": 0.632308827145316,
+        "operatingMargin": 0.15741332677649372,
+        "fcfMargin": 0.5958200147528891,
         "fcfConsistency": 100,
         "debtToEquity": 0.94,
-        "cashToDebt": 0.3221558988764045,
+        "cashToDebt": 0.26563404748118125,
         "currentRatio": 1.172528201725282,
         "quickRatio": 1.0787259455872595,
         "roic": 0.15,
-        "dilutionRate3y": -0.004161924568977238,
+        "dilutionRate3y": 0.0008160890151531763,
         "marginStability": 69,
         "ret1m": -0.12905427769387146,
         "ret3m": -0.15660221835660837,
@@ -982,14 +1071,14 @@
         1787.8599853515625
       ],
       "scoreHistory": [
-        67,
         68,
         70,
         71,
         72,
         74,
         55,
-        42.9
+        42.9,
+        42.5
       ],
       "previousRisk": 62.1,
       "previousDownside": 0.247,
@@ -1000,7 +1089,18 @@
       "watchPoints": [
         "Macro and FX sensitivity",
         "Higher drawdown profile than core compounders"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "NVDA",
@@ -1008,11 +1108,11 @@
       "sector": "Technology",
       "industry": "Semiconductors",
       "description": "Exceptional growth and quality profile, but the current portfolio already has heavy semiconductor exposure and the name carries elevated event and valuation fragility.",
-      "marketCap": 4359.07948,
+      "marketCap": 4360.672890000001,
       "marketCapBucket": "mega",
       "securityType": "stock",
-      "price": 177.82,
-      "fundamentalsLastUpdated": "2026-01-31",
+      "price": 177.885,
+      "fundamentalsLastUpdated": "2022-01-30",
       "factors": {
         "growth": 99,
         "quality": 93,
@@ -1022,19 +1122,19 @@
         "cyclical": 83
       },
       "metrics": {
-        "revenueGrowth": 0.6547353579009478,
-        "revenueCagr": 1.0004509499443963,
+        "revenueGrowth": 0.6140329835082459,
+        "revenueCagr": 0.060898711073184675,
         "epsGrowth": 0.6599326599326598,
-        "grossMargin": 0.7106808435754708,
-        "operatingMargin": 0.6038168363141272,
-        "fcfMargin": 0.44770258129648327,
+        "grossMargin": 5.701976666418964,
+        "operatingMargin": 4.844579029501375,
+        "fcfMargin": 3.816526714720963,
         "fcfConsistency": 100,
         "debtToEquity": 0.21,
-        "cashToDebt": 0.9605978260869565,
+        "cashToDebt": 1.252361832782239,
         "currentRatio": 3.905263812455306,
         "quickRatio": 3.5928427074588813,
         "roic": 0.41,
-        "dilutionRate3y": -0.007447968474157962,
+        "dilutionRate3y": 0.23631274289248916,
         "marginStability": 74,
         "ret1m": 0.020839341132873335,
         "ret3m": -0.009855721642433313,
@@ -1047,24 +1147,24 @@
         "maxDd3m": -0.10716321340547785,
         "maxDd6m": -0.17436240347455845,
         "maxDd12m": -0.22487055989234694,
-        "distanceSma20": -4.48078673407174,
-        "distanceSma50": -4.4009334914434195,
-        "distanceSma200": 0.9562509967558379,
+        "distanceSma20": -4.445870814252344,
+        "distanceSma50": -4.365988382214672,
+        "distanceSma200": 0.993154361477404,
         "trendSlope63d": 0.29875051411561504,
         "momentumAcceleration": 2.4124581680351107,
         "abnormalVolume20d": 0.9629493023892329,
-        "pullbackQuality": 28.833245094177038,
+        "pullbackQuality": 29.11257245273221,
         "relativeStrength": 50.011388533311404,
         "beta": 1.70126370024581,
         "crashFrequency": 100,
         "tailLoss": 0.05546773420744979,
         "sectorValuationPercentile": 100,
-        "selfValuationPercentile": 97.67619047619047,
-        "growthAdjustedValuation": 0.8388289121720117,
+        "selfValuationPercentile": 97.70543353096497,
+        "growthAdjustedValuation": 0.8391355361698253,
         "fcfYield": 0.009,
-        "pe": 55.35705952380952,
-        "evSales": 24.76778571428571,
-        "evEbitda": 35.14061904761905,
+        "pe": 55.377294642857144,
+        "evSales": 24.776839285714285,
+        "evEbitda": 35.153464285714286,
         "earningsDays": 9,
         "postEarningsGap": 0.116,
         "surpriseScore": 95,
@@ -1086,14 +1186,14 @@
         177.82000732421875
       ],
       "scoreHistory": [
-        80,
         82,
         83,
         81,
         79,
         78,
         55.4,
-        55.3
+        55.3,
+        54.8
       ],
       "previousRisk": 63.4,
       "previousDownside": 0.259,
@@ -1104,7 +1204,18 @@
       "watchPoints": [
         "Earnings gap risk",
         "Semiconductor concentration would worsen materially"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "NEE",
@@ -1112,11 +1223,11 @@
       "sector": "Utilities",
       "industry": "Regulated Utilities",
       "description": "Defensive utility with lower beta and potential stabilizing role, but timing remains weak and rate sensitivity caps near-term urgency.",
-      "marketCap": 189.59466,
+      "marketCap": 188.466012,
       "marketCapBucket": "large",
       "securityType": "stock",
       "price": 91.02,
-      "fundamentalsLastUpdated": "2025-12-31",
+      "fundamentalsLastUpdated": "2012-12-31",
       "factors": {
         "growth": 46,
         "quality": 74,
@@ -1126,19 +1237,19 @@
         "cyclical": 9
       },
       "metrics": {
-        "revenueGrowth": 0.10742132266795945,
-        "revenueCagr": 0.09364770128221722,
-        "epsGrowth": -0.028262874315690634,
+        "revenueGrowth": -0.12177985948477754,
+        "revenueCagr": -0.050705055495844364,
+        "epsGrowth": -0.020710059171597628,
         "grossMargin": 0.6226834962790019,
-        "operatingMargin": 0.2925725959433825,
-        "fcfMargin": 0.11713847949803007,
-        "fcfConsistency": 82.5,
+        "operatingMargin": 2.453333333333333,
+        "fcfMargin": 3.6992592592592595,
+        "fcfConsistency": 100,
         "debtToEquity": 1.76,
-        "cashToDebt": 0.029408381179472698,
+        "cashToDebt": 0.030218363136176065,
         "currentRatio": 0.5953455756672656,
         "quickRatio": 0.5477179296138844,
         "roic": 0.08,
-        "dilutionRate3y": 0.01585206465786637,
+        "dilutionRate3y": 0.03339821082555283,
         "marginStability": 81,
         "ret1m": 0.011670505814349807,
         "ret3m": 0.07145379532529605,
@@ -1190,14 +1301,14 @@
         91.0199966430664
       ],
       "scoreHistory": [
-        51,
         52,
         53,
         52,
         51,
         51,
         38.3,
-        47.7
+        47.7,
+        47.3
       ],
       "previousRisk": 42.8,
       "previousDownside": 0.177,
@@ -1207,7 +1318,18 @@
       "watchPoints": [
         "Negative FCF profile",
         "Rate sensitivity dulls timing score"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "UBER",
@@ -1230,18 +1352,18 @@
       },
       "metrics": {
         "revenueGrowth": 0.1827959434262585,
-        "revenueCagr": 0.17730580736694201,
+        "revenueCagr": 0.09859629437601547,
         "epsGrowth": 0.023354564755838636,
         "grossMargin": 0.39754311090604993,
         "operatingMargin": 0.10698425514735567,
         "fcfMargin": 0.18768864025222523,
-        "fcfConsistency": 100,
+        "fcfConsistency": 60,
         "debtToEquity": 0.62,
-        "cashToDebt": 0.5881622516556292,
+        "cashToDebt": 0.6753160345974717,
         "currentRatio": 1.1357954545454545,
         "quickRatio": 1.0449318181818181,
         "roic": 0.11,
-        "dilutionRate3y": 0.02385933184821476,
+        "dilutionRate3y": 0.0834896937474554,
         "marginStability": 55,
         "ret1m": 0.016369035639140384,
         "ret3m": -0.17148216805718575,
@@ -1293,14 +1415,14 @@
         75.12999725341797
       ],
       "scoreHistory": [
-        58,
         60,
         61,
         62,
         63,
         64,
         47.3,
-        42.8
+        42.8,
+        41.4
       ],
       "previousRisk": 64.2,
       "previousDownside": 0.257,
@@ -1310,7 +1432,18 @@
       "watchPoints": [
         "Dilution has improved but remains non-zero",
         "Earnings moves remain large"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     },
     {
       "symbol": "XOM",
@@ -1318,11 +1451,11 @@
       "sector": "Energy",
       "industry": "Integrated Oil & Gas",
       "description": "Cash-generative energy major that can work in some regimes, but it is outside the user’s allowed sector mandate.",
-      "marketCap": 649.90058,
+      "marketCap": 668.19699,
       "marketCapBucket": "mega",
       "securityType": "stock",
       "price": 151.21,
-      "fundamentalsLastUpdated": "2025-12-31",
+      "fundamentalsLastUpdated": "2021-12-31",
       "factors": {
         "growth": 41,
         "quality": 67,
@@ -1332,19 +1465,19 @@
         "cyclical": 92
       },
       "metrics": {
-        "revenueGrowth": -0.045223686576447264,
-        "revenueCagr": -0.06688991546295975,
-        "epsGrowth": -0.11811023622047256,
+        "revenueGrowth": 0.5494528878784146,
+        "revenueCagr": 0.019457058800727012,
+        "epsGrowth": -0.14540816326530603,
         "grossMargin": 0.21994103209274324,
         "operatingMargin": 0.10477763541779225,
-        "fcfMargin": 0.07289791759929609,
-        "fcfConsistency": 89.38481747030814,
+        "fcfMargin": 0.08533676434446966,
+        "fcfConsistency": 94.61538461538461,
         "debtToEquity": 0.18,
-        "cashToDebt": 0.24533155706640328,
+        "cashToDebt": 1.722741935483871,
         "currentRatio": 1.1527996681874741,
         "quickRatio": 1.0605756947324763,
         "roic": 0.12,
-        "dilutionRate3y": 0.0017901657140935168,
+        "dilutionRate3y": -0.047917262806672634,
         "marginStability": 61,
         "ret1m": 0.02452747791719534,
         "ret3m": 0.2836163225516217,
@@ -1396,12 +1529,12 @@
         151.2100067138672
       ],
       "scoreHistory": [
-        50,
         49,
         47,
         46,
         45,
         44,
+        38,
         38,
         38
       ],
@@ -1412,7 +1545,18 @@
       ],
       "watchPoints": [
         "Explicitly excluded sector"
-      ]
+      ],
+      "dataQuality": {
+        "sourceMode": "blended",
+        "coverage": 90,
+        "inferredSignals": 0,
+        "missingCoreFields": [],
+        "notes": [
+          "Fundamental fields refreshed from the latest available provider timeseries.",
+          "Price history and risk features refreshed from point-in-time daily bars."
+        ]
+      },
+      "priceAsOf": "2026-03-06"
     }
   ],
   "benchmark": {
@@ -1459,5 +1603,84 @@
       "systemSummary": "Moderate return potential, strong fit, low downside contribution.",
       "outcome": "Served as ballast; still functioning as intended."
     }
-  ]
+  ],
+  "macroSnapshot": {
+    "asOf": "2026-03-05",
+    "yield2y": 3.57,
+    "yield10y": 4.13,
+    "curve2s10s": 0.56,
+    "unemploymentRate": 4.4,
+    "inflationYoY": 2.4,
+    "highYieldSpread": 3,
+    "narrative": "The 2s10s curve is 0.56 points positive, which is less restrictive for risk assets. Credit spreads are contained enough that broad stress is not the lead macro signal. Inflation is running near 2.4% year over year and unemployment is 4.4%.",
+    "riskTone": 0.7
+  },
+  "validationReport": {
+    "generatedAt": "2026-03-09T05:14:19.382Z",
+    "snapshotCount": 3,
+    "pairCount": 2,
+    "hitRate": 0.0417,
+    "averageForwardReturn": 0,
+    "averageBenchmarkRelativeReturn": 0,
+    "averageTurnover": 0,
+    "brierScore": 0.2251,
+    "scoreDeciles": [
+      {
+        "decile": 4,
+        "count": 2,
+        "avgForwardReturn": 0,
+        "avgBenchmarkRelativeReturn": 0,
+        "hitRate": 0
+      },
+      {
+        "decile": 5,
+        "count": 10,
+        "avgForwardReturn": 0,
+        "avgBenchmarkRelativeReturn": 0,
+        "hitRate": 0
+      },
+      {
+        "decile": 6,
+        "count": 12,
+        "avgForwardReturn": 0,
+        "avgBenchmarkRelativeReturn": 0,
+        "hitRate": 0.0833
+      }
+    ],
+    "calibration": [
+      {
+        "bucket": "30-40%",
+        "count": 6,
+        "predicted": 0.3577,
+        "realized": 0,
+        "brier": 0.1291
+      },
+      {
+        "bucket": "40-50%",
+        "count": 8,
+        "predicted": 0.459,
+        "realized": 0,
+        "brier": 0.2108
+      },
+      {
+        "bucket": "50-60%",
+        "count": 10,
+        "predicted": 0.556,
+        "realized": 0.1,
+        "brier": 0.2941
+      }
+    ],
+    "regimes": [
+      {
+        "regime": "Sideways / low conviction",
+        "count": 24,
+        "avgForwardReturn": 0,
+        "hitRate": 0.0417
+      }
+    ],
+    "notes": [
+      "Validation uses point-in-time snapshot pairs and measures forward price change into the next available snapshot.",
+      "This is intentionally simple and leakage-aware, but it is only as strong as the snapshot history you have recorded."
+    ]
+  }
 }

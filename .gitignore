@@ -1,3 +1,7 @@
+# User data
+data/runtime/
+data/snapshots/
+
 # Logs
 logs
 *.log

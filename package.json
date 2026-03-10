@@ -5,12 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dev:clean": "tsx scripts/dev-clean.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "data:sync": "tsx scripts/sync-live-data.ts",
-    "data:sync:directory": "tsx scripts/sync-symbol-directory.ts"
+    "data:sync:directory": "tsx scripts/sync-symbol-directory.ts",
+    "data:sync:macro": "tsx scripts/sync-macro-data.ts",
+    "data:sync:sec": "tsx scripts/sync-sec-companyfacts.ts",
+    "validate:model": "tsx scripts/validate-model.ts"
   },
   "dependencies": {
     "@fontsource/ibm-plex-mono": "^5.2.7",
@@ -35,6 +40,7 @@
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "vitest": "^3.2.4"
   }
 }

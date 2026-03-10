@@ -18,6 +18,8 @@ export type MarketCapBucket = 'micro' | 'small' | 'mid' | 'large' | 'mega';
 
 export type SecurityType = 'stock' | 'adr' | 'reit';
 
+export type AppTheme = 'emerald' | 'cobalt' | 'amber' | 'rose' | 'graphite';
+
 export type RiskBucket =
   | 'Defensive'
   | 'Moderate'
@@ -52,6 +54,17 @@ export type PlannerPriority =
   | 'conviction';
 
 export type DeploymentStyle = 'deploy-all' | 'stage-entries' | 'hold-flexibility';
+
+export type TransactionKind =
+  | 'deposit'
+  | 'withdrawal'
+  | 'buy'
+  | 'sell'
+  | 'dividend'
+  | 'split'
+  | 'fee';
+
+export type TransactionSource = 'manual' | 'system';
 
 export interface StrategyWeights {
   growth: number;
@@ -91,6 +104,11 @@ export interface UserProfile {
   manualTags: string[];
 }
 
+export type EditableUserSettings = Omit<
+  UserProfile,
+  'id' | 'name' | 'baseCurrency' | 'investableCash'
+>;
+
 export interface Holding {
   symbol: string;
   shares: number;
@@ -98,6 +116,37 @@ export interface Holding {
   styleTags: string[];
   thesisTags: string[];
   entryDate: string;
+}
+
+export interface PortfolioTransaction {
+  id: string;
+  kind: TransactionKind;
+  date: string;
+  symbol?: string;
+  shares?: number;
+  price?: number;
+  amount?: number;
+  splitRatio?: number;
+  note?: string;
+  source: TransactionSource;
+}
+
+export interface LedgerBaseline {
+  asOf: string;
+  holdings: Holding[];
+  investableCash: number;
+}
+
+export interface PortfolioLedgerSummary {
+  transactionCount: number;
+  realizedPnl: number;
+  dividendsReceived: number;
+  feesPaid: number;
+  deposits: number;
+  withdrawals: number;
+  netCashFlow: number;
+  lastActivityDate?: string;
+  notes: string[];
 }
 
 export interface Watchlist {
@@ -190,6 +239,14 @@ export interface SecuritySeed {
   previousDownside: number;
   thesisNotes: string[];
   watchPoints: string[];
+  priceAsOf?: string;
+  dataQuality?: {
+    sourceMode: 'seeded' | 'live' | 'blended' | 'derived';
+    coverage: number;
+    inferredSignals: number;
+    missingCoreFields: string[];
+    notes: string[];
+  };
 }
 
 export interface BenchmarkSeed {
@@ -242,6 +299,56 @@ export interface PortfolioHistoryStore {
   daily: PortfolioHistorySnapshot[];
 }
 
+export interface MacroSnapshot {
+  asOf: string;
+  yield2y?: number;
+  yield10y?: number;
+  curve2s10s?: number;
+  unemploymentRate?: number;
+  inflationYoY?: number;
+  highYieldSpread?: number;
+  narrative: string;
+  riskTone: number;
+}
+
+export interface ValidationDecileMetric {
+  decile: number;
+  count: number;
+  avgForwardReturn: number;
+  avgBenchmarkRelativeReturn: number;
+  hitRate: number;
+}
+
+export interface ValidationCalibrationMetric {
+  bucket: string;
+  count: number;
+  predicted: number;
+  realized: number;
+  brier: number;
+}
+
+export interface ValidationRegimeMetric {
+  regime: string;
+  count: number;
+  avgForwardReturn: number;
+  hitRate: number;
+}
+
+export interface ValidationReport {
+  generatedAt: string;
+  snapshotCount: number;
+  pairCount: number;
+  hitRate: number;
+  averageForwardReturn: number;
+  averageBenchmarkRelativeReturn: number;
+  averageTurnover: number;
+  brierScore: number;
+  scoreDeciles: ValidationDecileMetric[];
+  calibration: ValidationCalibrationMetric[];
+  regimes: ValidationRegimeMetric[];
+  notes: string[];
+}
+
 export interface MockDataset {
   asOf: string;
   dataMode?: 'seeded' | 'live' | 'blended';
@@ -251,10 +358,14 @@ export interface MockDataset {
   syncNotes?: string[];
   user: UserProfile;
   holdings: Holding[];
+  transactions?: PortfolioTransaction[];
+  ledgerBaseline?: LedgerBaseline;
   watchlists: Watchlist[];
   securities: SecuritySeed[];
   benchmark: BenchmarkSeed;
   journal: JournalEntry[];
+  macroSnapshot?: MacroSnapshot;
+  validationReport?: ValidationReport;
 }
 
 export interface ScoreContribution {
@@ -296,10 +407,13 @@ export interface RiskBreakdown {
 
 export interface FitImpact {
   overlapScore: number;
+  clusterOverlap: number;
   concentrationDelta: number;
   sectorWeightAfter: number;
   diversificationDelta: number;
   portfolioVolDelta: number;
+  marginalRiskContribution: number;
+  marginalDrawdownImpact: number;
 }
 
 export interface AllocationSuggestion {
@@ -326,11 +440,14 @@ export interface Explainability {
 
 export interface ScoreCard {
   symbol: string;
+  businessQuality: number;
+  entryQuality: number;
   opportunity: ScoreBreakdown;
   fragility: ScoreBreakdown;
   timing: ScoreBreakdown;
   portfolioFit: ScoreBreakdown;
   confidence: number;
+  dataQualityScore: number;
   composite: number;
   risk: RiskBreakdown;
   expectedReturns: ExpectedReturnScenario[];
@@ -351,7 +468,9 @@ export interface RegimeSnapshot {
 export interface HoldingAnalysis {
   symbol: string;
   shares: number;
+  costBasis: number;
   marketValue: number;
+  unrealizedPnl: number;
   weight: number;
   gainLossPct: number;
   action: ActionLabel;
@@ -414,6 +533,7 @@ export interface CommandCenterModel {
   regime: RegimeSnapshot;
   scorecards: ScoreCard[];
   holdings: HoldingAnalysis[];
+  ledgerSummary: PortfolioLedgerSummary;
   alerts: AlertItem[];
   watchlistMovers: WatchlistMover[];
   deploymentPlan: DeploymentPlan;
