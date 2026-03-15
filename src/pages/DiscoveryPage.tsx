@@ -1,5 +1,6 @@
+import { useEffect } from 'react';
 import { useStoredState } from './../hooks/useStoredState';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { Filter, Search } from 'lucide-react';
 import {
   Panel,
@@ -26,6 +27,7 @@ import {
 import { usePortfolioWorkspace } from './../runtime/portfolioContext';
 
 export function DiscoveryPage() {
+  const location = useLocation();
   const {
     model,
     symbolDirectory,
@@ -55,6 +57,19 @@ export function DiscoveryPage() {
     minRevenueGrowth !== 'All' ||
     maxRisk !== 'All' ||
     action !== 'All';
+
+  useEffect(() => {
+    const section = new URLSearchParams(location.search).get('section');
+    if (section) {
+      const el = document.getElementById(section);
+      if (el) {
+        const t = window.setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+        return () => window.clearTimeout(t);
+      }
+    }
+  }, [location.search]);
 
   function clearFilters() {
     setSector('All');

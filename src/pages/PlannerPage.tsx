@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { ListTodo } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
   Panel,
   PageHeader,
@@ -16,6 +16,7 @@ import { buyBlocker, buyPotentialScore, potentialBuyRows, starterSizeLabel } fro
 import { usePortfolioWorkspace } from './../runtime/portfolioContext';
 
 function PlannerPageContent() {
+  const location = useLocation();
   const { dataset, model } = usePortfolioWorkspace();
   const [inputs, setInputs] = useStoredState<PlannerInputs>('ic-planner-inputs', {
     availableCash: dataset.user.investableCash,
@@ -35,6 +36,19 @@ function PlannerPageContent() {
           },
     );
   }, [dataset.user.investableCash, setInputs]);
+
+  useEffect(() => {
+    const section = new URLSearchParams(location.search).get('section');
+    if (section) {
+      const el = document.getElementById(section);
+      if (el) {
+        const t = window.setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+        return () => window.clearTimeout(t);
+      }
+    }
+  }, [location.search]);
 
   const plan = buildDeploymentPlan(
     dataset,

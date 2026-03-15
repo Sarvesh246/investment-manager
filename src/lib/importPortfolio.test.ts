@@ -71,4 +71,37 @@ describe('parseBrokerTransactionsCsv', () => {
       price: 400,
     });
   });
+
+  it('detects Robinhood-style rows, extracts tickers, and filters unsupported events', () => {
+    const csv = [
+      'Date,Instrument,Action,Quantity,Price,Amount',
+      '2023-05-01,NVIDIA Corporation (NVDA),Buy,1,285,-285',
+      '2023-05-02,NVIDIA Corporation (NVDA),Dividend,,,$0.24',
+      '2023-05-03,Cash,Transfer,,,100',
+      '2023-05-04,NVIDIA Corporation (NVDA),Option Exercise,1,300,-300',
+    ].join('\n');
+
+    const { format, transactions, warnings } = parseBrokerTransactionsCsv(csv, 'robinhood.csv');
+
+    expect(format).toBe('robinhood');
+    expect(transactions).toHaveLength(3);
+    expect(transactions[0]).toMatchObject({
+      kind: 'buy',
+      symbol: 'NVDA',
+      shares: 1,
+      price: 285,
+    });
+    expect(transactions[1]).toMatchObject({
+      kind: 'dividend',
+      symbol: 'NVDA',
+      amount: 0.24,
+    });
+    expect(transactions[2]).toMatchObject({
+      kind: 'deposit',
+      amount: 100,
+    });
+    expect(warnings).toEqual([
+      'Ignored row 5 because "Option Exercise" is not supported in the import pipeline yet.',
+    ]);
+  });
 });

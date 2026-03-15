@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { BriefcaseBusiness, Layers, ListOrdered, Plus, Trash2 } from 'lucide-react';
 import {
   Panel,
@@ -47,6 +47,7 @@ import { useToast } from './../runtime/toastContext';
 import { parseBrokerHoldingsCsv, parseBrokerTransactionsCsv } from './../lib/importPortfolio';
 
 export function PortfolioPage() {
+  const location = useLocation();
   const {
     dataset,
     model,
@@ -194,6 +195,19 @@ export function PortfolioPage() {
     quoteErrors,
     symbolDirectory,
   ]);
+
+  useEffect(() => {
+    const section = new URLSearchParams(location.search).get('section');
+    if (section) {
+      const el = document.getElementById(section);
+      if (el) {
+        const t = window.setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+        return () => window.clearTimeout(t);
+      }
+    }
+  }, [location.search]);
 
   return (
     <div className="page">

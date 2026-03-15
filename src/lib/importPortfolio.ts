@@ -5,6 +5,8 @@ import type {
 } from '../domain/types';
 import { normalizeSymbol } from './symbols';
 
+type BrokerCsvFormat = 'generic' | 'robinhood';
+
 function normalizeHeader(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
@@ -64,6 +66,17 @@ function findColumn(headers: string[], aliases: string[]) {
   return headers.findIndex((header) => normalizedAliases.includes(normalizeHeader(header)));
 }
 
+function detectBrokerFormat(headers: string[]): BrokerCsvFormat {
+  const normalizedHeaders = headers.map(normalizeHeader);
+  const looksLikeRobinhood =
+    normalizedHeaders.includes('instrument') &&
+    normalizedHeaders.includes('action') &&
+    normalizedHeaders.includes('quantity') &&
+    normalizedHeaders.includes('price');
+
+  return looksLikeRobinhood ? 'robinhood' : 'generic';
+}
+
 function parseNumber(value: string | undefined) {
   if (!value) {
     return undefined;
@@ -84,30 +97,48 @@ function parseNumber(value: string | undefined) {
   return negative ? -Math.abs(numeric) : numeric;
 }
 
-function parseSplitRatio(value: string | undefined) {
-  if (!value) {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  const colonMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
-  if (colonMatch) {
-    const left = Number(colonMatch[1]);
-    const right = Number(colonMatch[2]);
-    if (Number.isFinite(left) && Number.isFinite(right) && right > 0) {
-      return left / right;
-    }
-  }
-
-  return parseNumber(trimmed);
-}
-
 function roundCurrency(value: number | undefined) {
   if (value == null || !Number.isFinite(value)) {
     return undefined;
   }
 
   return Math.round(value * 100) / 100;
+}
+
+function absoluteAmount(value: number | undefined) {
+  if (value == null || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return Math.abs(value);
+}
+
+function extractTicker(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const parentheticalMatch = trimmed.match(/\(([A-Z]{1,6}(?:[.-][A-Z]{1,4})?)\)/);
+  if (parentheticalMatch) {
+    return normalizeSymbol(parentheticalMatch[1]);
+  }
+
+  const exactMatch = trimmed.match(/^[A-Z]{1,6}(?:[.-][A-Z]{1,4})?$/);
+  if (exactMatch) {
+    return normalizeSymbol(exactMatch[0]);
+  }
+
+  const tokenMatches = trimmed.match(/\b[A-Z]{1,6}(?:[.-][A-Z]{1,4})?\b/g);
+  if (tokenMatches?.length) {
+    return normalizeSymbol(tokenMatches[tokenMatches.length - 1]);
+  }
+
+  return undefined;
 }
 
 function normalizeDate(value: string | undefined) {
@@ -184,8 +215,22 @@ function rowLooksLikeCash(label: string) {
   return /(cash|buying power|brokerage cash|uninvested|sweep)/i.test(label);
 }
 
-function transactionKindFromText(value: string) {
+function transactionKindFromText(
+  value: string,
+  amount: number | undefined,
+  shares: number | undefined,
+  symbol: string | undefined,
+) {
   const normalized = normalizeHeader(value);
+
+  if (
+    normalized.includes('optionexercise') ||
+    normalized.includes('optionassignment') ||
+    normalized.includes('journalentry') ||
+    normalized.includes('stocksplit')
+  ) {
+    return 'unsupported' as const;
+  }
 
   if (normalized.includes('reinvest')) {
     return 'reinvest' as const;
@@ -206,10 +251,43 @@ function transactionKindFromText(value: string) {
     return 'dividend' as const;
   }
   if (normalized.includes('split')) {
-    return 'split' as const;
+    return 'unsupported' as const;
   }
   if (normalized.includes('fee') || normalized.includes('commission')) {
     return 'fee' as const;
+  }
+  if (
+    normalized.includes('transfer') ||
+    normalized.includes('deposit') ||
+    normalized.includes('withdraw')
+  ) {
+    if (
+      normalized.includes('withdraw') ||
+      normalized.includes('transferout') ||
+      normalized.includes('wireout')
+    ) {
+      return 'withdrawal' as const;
+    }
+
+    if (
+      normalized.includes('deposit') ||
+      normalized.includes('transferin') ||
+      normalized.includes('wirein')
+    ) {
+      return 'deposit' as const;
+    }
+
+    if (amount != null) {
+      return amount >= 0 ? ('deposit' as const) : ('withdrawal' as const);
+    }
+  }
+
+  if (symbol && shares != null && shares > 0 && amount != null) {
+    return amount < 0 ? ('buy' as const) : ('sell' as const);
+  }
+
+  if (symbol && amount != null && (shares == null || shares === 0) && amount > 0) {
+    return 'dividend' as const;
   }
 
   return undefined;
@@ -247,7 +325,7 @@ export function parseBrokerHoldingsCsv(text: string, source = 'Broker CSV') {
   let importedPortfolioValue: number | undefined;
   const positions: BrokerImportPosition[] = [];
 
-  body.forEach((row, index) => {
+  body.forEach((row) => {
     const rawSymbol = symbolIndex >= 0 ? row[symbolIndex] : '';
     const name = nameIndex >= 0 ? row[nameIndex] : undefined;
     const label = `${rawSymbol ?? ''} ${name ?? ''}`.trim();
@@ -267,16 +345,12 @@ export function parseBrokerHoldingsCsv(text: string, source = 'Broker CSV') {
       return;
     }
 
-    if (!rawSymbol || !normalizeSymbol(rawSymbol)) {
+    const symbol = extractTicker(rawSymbol) ?? extractTicker(name);
+
+    if (!symbol) {
       if (totalEquity != null && importedPortfolioValue == null) {
         importedPortfolioValue = totalEquity;
       }
-      return;
-    }
-
-    const symbol = normalizeSymbol(rawSymbol);
-    if (!symbol) {
-      notes.push(`Skipped row ${index + 2} because the symbol could not be read.`);
       return;
     }
 
@@ -339,6 +413,7 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
   }
 
   const headers = rows[0];
+  const format = detectBrokerFormat(headers);
   const body = rows.slice(1);
   const dateIndex = findColumn(headers, ['date', 'activitydate', 'tradedate', 'settlementdate']);
   const actionIndex = findColumn(headers, ['kind', 'type', 'action', 'side', 'transactiontype', 'activity']);
@@ -347,7 +422,6 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
   const priceIndex = findColumn(headers, ['price', 'fillprice', 'averageprice']);
   const amountIndex = findColumn(headers, ['amount', 'totalamount', 'netamount', 'cashamount']);
   const feeIndex = findColumn(headers, ['fee', 'fees', 'commission']);
-  const splitRatioIndex = findColumn(headers, ['splitratio', 'ratio']);
   const noteIndex = findColumn(headers, ['note', 'notes', 'description', 'details']);
 
   if (dateIndex === -1 || actionIndex === -1) {
@@ -359,27 +433,33 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
 
   body.forEach((row, index) => {
     const rawAction = row[actionIndex] ?? '';
-    const normalizedKind = transactionKindFromText(rawAction);
-    const symbol = symbolIndex >= 0 ? normalizeSymbol(row[symbolIndex]) : undefined;
-    const shares = sharesIndex >= 0 ? parseNumber(row[sharesIndex]) : undefined;
+    const rawSymbol = symbolIndex >= 0 ? row[symbolIndex] : undefined;
+    const symbol = extractTicker(rawSymbol);
+    const sharesValue = sharesIndex >= 0 ? parseNumber(row[sharesIndex]) : undefined;
+    const shares = sharesValue == null ? undefined : Math.abs(sharesValue);
     let price = priceIndex >= 0 ? parseNumber(row[priceIndex]) : undefined;
     const amount = amountIndex >= 0 ? parseNumber(row[amountIndex]) : undefined;
     const fee = feeIndex >= 0 ? parseNumber(row[feeIndex]) : undefined;
-    const splitRatio = splitRatioIndex >= 0 ? parseSplitRatio(row[splitRatioIndex]) : undefined;
     const note = noteIndex >= 0 ? row[noteIndex] : undefined;
     const date = normalizeDate(row[dateIndex]);
+    const normalizedKind = transactionKindFromText(rawAction, amount, shares, symbol);
 
     if (!normalizedKind) {
       warnings.push(`Skipped row ${index + 2} because the event type "${rawAction}" was not recognized.`);
       return;
     }
 
+    if (normalizedKind === 'unsupported') {
+      warnings.push(`Ignored row ${index + 2} because "${rawAction}" is not supported in the import pipeline yet.`);
+      return;
+    }
+
     if ((normalizedKind === 'buy' || normalizedKind === 'sell' || normalizedKind === 'reinvest') && shares != null && price == null && amount != null && shares > 0) {
-      price = amount / shares;
+      price = Math.abs(amount) / shares;
     }
 
     if (normalizedKind === 'reinvest') {
-      const reinvestAmount = amount ?? ((shares ?? 0) * (price ?? 0));
+      const reinvestAmount = absoluteAmount(amount) ?? ((shares ?? 0) * (price ?? 0));
       if (reinvestAmount <= 0 || !symbol || shares == null || price == null) {
         warnings.push(`Skipped row ${index + 2} because the reinvestment data was incomplete.`);
         return;
@@ -417,9 +497,8 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
           normalizedKind === 'withdrawal' ||
           normalizedKind === 'dividend' ||
           normalizedKind === 'fee'
-            ? amount ?? undefined
+            ? absoluteAmount(amount)
             : undefined,
-        splitRatio: normalizedKind === 'split' ? splitRatio : undefined,
         note: note?.trim() || undefined,
         source: 'system',
       };
@@ -445,6 +524,7 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
   });
 
   return {
+    format,
     transactions,
     warnings,
   };

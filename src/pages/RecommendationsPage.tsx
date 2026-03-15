@@ -1,6 +1,6 @@
 import { Radar } from 'lucide-react';
-import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import {
   Panel,
   PageHeader,
@@ -27,6 +27,7 @@ import {
 import { usePortfolioWorkspace } from './../runtime/portfolioContext';
 
 export function RecommendationsPage() {
+  const location = useLocation();
   const { model } = usePortfolioWorkspace();
   const [actionFilter, setActionFilter] = useStoredState('ic-recommendations-action-filter', 'All');
   const [sortBy, setSortBy] = useStoredState<'readiness' | 'composite' | 'risk' | 'fit' | 'expected'>(
@@ -62,6 +63,19 @@ export function RecommendationsPage() {
       return map;
     }, new Map<string, typeof model.scorecards>()),
   );
+
+  useEffect(() => {
+    const section = new URLSearchParams(location.search).get('section');
+    if (section) {
+      const el = document.getElementById(section);
+      if (el) {
+        const t = window.setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+        return () => window.clearTimeout(t);
+      }
+    }
+  }, [location.search]);
 
   return (
     <div className="page">

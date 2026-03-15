@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { AlertTriangle, LayoutDashboard, ListChecks, TrendingUp } from 'lucide-react';
 import { HoverableChart } from './../components/HoverableChart';
 import { PageJumpNav, Panel, ScorePill, SignalBar, Tag } from './../components/ui';
@@ -46,6 +47,7 @@ function jumpToSection(id: string) {
 }
 
 export function DashboardPage() {
+  const location = useLocation();
   const { dataset, model, portfolioHistory, setInvestableCash } = usePortfolioWorkspace();
   const [selectedRange, setSelectedRange] = useStoredState<DashboardRange>(DASHBOARD_RANGE_KEY, '12M');
   const [homeMode, setHomeMode] = useStoredState<'simple' | 'advanced'>(HOME_MODE_KEY, 'simple');
@@ -117,6 +119,19 @@ export function DashboardPage() {
       [id]: { ...current[id], pinned: !(current[id]?.pinned ?? false) },
     }));
   }
+
+  useEffect(() => {
+    const section = new URLSearchParams(location.search).get('section');
+    if (section) {
+      const el = document.getElementById(section);
+      if (el) {
+        const t = window.setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+        return () => window.clearTimeout(t);
+      }
+    }
+  }, [location.search]);
 
   return (
     <div className="page page--home">

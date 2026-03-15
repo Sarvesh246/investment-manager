@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { BarChart3, ChevronDown, ChevronUp, ClipboardCheck, List, Plus, Trash2 } from 'lucide-react';
 import {
   Panel,
@@ -66,6 +67,7 @@ function AddSymbolToWatchlistForm({
 }
 
 export function SettingsPage() {
+  const location = useLocation();
   const {
     dataset,
     model,
@@ -102,6 +104,20 @@ export function SettingsPage() {
       /* ignore */
     }
   }, [themeSectionExpanded]);
+
+  useEffect(() => {
+    const section = new URLSearchParams(location.search).get('section');
+    if (section) {
+      const el = document.getElementById(section);
+      if (el) {
+        const t = window.setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+        return () => window.clearTimeout(t);
+      }
+    }
+  }, [location.search]);
+
   const validationReport = dataset.validationReport;
   const macroSnapshot = dataset.macroSnapshot;
   const recommendationHistorySummary = summarizeRecommendationHistory(recommendationHistory);

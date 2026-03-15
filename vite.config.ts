@@ -133,7 +133,6 @@ async function handleSharedStorageRequest(
 }
 
 export default defineConfig({
-  base: '/investment-manager/',
   plugins: [
     react(),
     {
