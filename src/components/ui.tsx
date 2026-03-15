@@ -1,6 +1,7 @@
 import clsx from 'clsx';
+import { useEffect, useState } from 'react';
 import type { PropsWithChildren, ReactNode } from 'react';
-import { HelpCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
 import { Tooltip } from './Tooltip';
 
 export function Panel({
@@ -9,6 +10,12 @@ export function Panel({
   eyebrow,
   subtitle,
   action,
+  helpText,
+  collapsible = false,
+  collapsed = false,
+  onToggleCollapse,
+  pinned = false,
+  onTogglePin,
   className,
   children,
 }: PropsWithChildren<{
@@ -17,28 +24,118 @@ export function Panel({
   eyebrow?: string;
   subtitle?: string;
   action?: ReactNode;
+  helpText?: ReactNode;
+  collapsible?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+  pinned?: boolean;
+  onTogglePin?: () => void;
   className?: string;
 }>) {
+  const hasHeaderActions = action || helpText || collapsible || onTogglePin;
+
   return (
-    <section id={id} className={clsx('panel', className)}>
+    <section id={id} className={clsx('panel', pinned && 'panel--pinned', className)}>
       <header className="panel__header">
-        <div>
+        <div className="panel__header-main">
           {eyebrow ? <div className="panel__eyebrow">{eyebrow}</div> : null}
-          <h2 className="panel__title">{title}</h2>
+          <div className="panel__title-row">
+            <h2 className="panel__title">{title}</h2>
+            {helpText ? (
+              <Tooltip content={helpText}>
+                <button
+                  type="button"
+                  className="panel__help"
+                  aria-label={`What ${title} means`}
+                >
+                  <HelpCircle size={14} aria-hidden="true" />
+                </button>
+              </Tooltip>
+            ) : null}
+          </div>
           {subtitle ? <p className="panel__subtitle">{subtitle}</p> : null}
         </div>
-        {action ? <div className="panel__action">{action}</div> : null}
+        {hasHeaderActions ? (
+          <div className="panel__action">
+            {action}
+            {onTogglePin ? (
+              <button
+                type="button"
+                className={clsx('panel__meta-button', pinned && 'panel__meta-button--active')}
+                onClick={onTogglePin}
+                aria-pressed={pinned}
+              >
+                {pinned ? 'Pinned' : 'Pin'}
+              </button>
+            ) : null}
+            {collapsible ? (
+              <button
+                type="button"
+                className="panel__meta-button"
+                onClick={onToggleCollapse}
+                aria-expanded={!collapsed}
+              >
+                {collapsed ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronUp size={14} aria-hidden="true" />}
+                <span>{collapsed ? 'Show' : 'Hide'}</span>
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </header>
-      {children}
+      {!collapsed ? children : null}
     </section>
   );
 }
 
+/**
+ * In-page jump links (e.g. Overview, Next moves, Risk radar, Exposure).
+ * Use `compact` + `sticky={false}` on the dashboard so the nav scrolls away and doesn’t block content.
+ * Highlights the link for the section currently in view (Intersection Observer).
+ */
 export function PageJumpNav({
   items,
+  compact = false,
+  sticky = true,
+  wrap = false,
 }: {
   items: Array<{ href: string; label: string; detail?: string }>;
+  /** Single-line labels, detail as tooltip; less visual weight. */
+  compact?: boolean;
+  /** If false, nav scrolls with content instead of sticking. */
+  sticky?: boolean;
+  /** If true, links wrap onto multiple rows instead of horizontal scroll. */
+  wrap?: boolean;
 }) {
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+
+    const ids = items
+      .map((item) => (item.href.startsWith('#') ? item.href.slice(1) : item.href))
+      .filter(Boolean);
+    if (ids.length === 0) return;
+
+    const elements = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el != null);
+    if (elements.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = entry.target.id;
+          if (id) setActiveId(id);
+        }
+      },
+      { rootMargin: '-20% 0px -60% 0px', threshold: 0 },
+    );
+
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [items]);
+
   function handleJump(href: string) {
     if (typeof document === 'undefined') {
       return;
@@ -59,18 +156,32 @@ export function PageJumpNav({
   }
 
   return (
-    <nav className="page-jump-nav" aria-label="Jump to section">
-      {items.map((item) => (
-        <button
-          key={item.href}
-          type="button"
-          className="page-jump-nav__link"
-          onClick={() => handleJump(item.href)}
-        >
-          <strong>{item.label}</strong>
-          {item.detail ? <span>{item.detail}</span> : null}
-        </button>
-      ))}
+    <nav
+      className={clsx(
+        'page-jump-nav',
+        compact && 'page-jump-nav--compact',
+        !sticky && 'page-jump-nav--scroll',
+        wrap && 'page-jump-nav--wrap',
+      )}
+      aria-label="Jump to section"
+    >
+      {items.map((item) => {
+        const targetId = item.href.startsWith('#') ? item.href.slice(1) : item.href;
+        const isActive = targetId && activeId === targetId;
+        return (
+          <button
+            key={item.href}
+            type="button"
+            className={clsx('page-jump-nav__link', isActive && 'page-jump-nav__link--active')}
+            onClick={() => handleJump(item.href)}
+            title={compact && item.detail ? item.detail : undefined}
+            aria-current={isActive ? 'true' : undefined}
+          >
+            <strong>{item.label}</strong>
+            {!compact && item.detail ? <span>{item.detail}</span> : null}
+          </button>
+        );
+      })}
     </nav>
   );
 }
@@ -94,7 +205,9 @@ export function MetricCard({
         {label}
         {tooltip ? (
           <Tooltip content={tooltip}>
-            <HelpCircle size={12} className="metric-card__help" aria-label="Help" />
+            <span className="metric-card__help" tabIndex={0} aria-label={`Help for ${label}`}>
+              <HelpCircle size={12} aria-hidden="true" />
+            </span>
           </Tooltip>
         ) : null}
       </div>
@@ -116,7 +229,7 @@ export function PageHeader({
   return (
     <header className="page-header">
       <div>
-        <div className="page-header__eyebrow">Guided Wealth Console</div>
+        <div className="page-header__eyebrow">Atlas Capital Center</div>
         <h1>{title}</h1>
         <p>{summary}</p>
       </div>
@@ -129,10 +242,13 @@ export function ScorePill({
   label,
   score,
   tone,
+  title,
 }: {
   label: string;
   score: number | string;
   tone?: 'positive' | 'negative' | 'warning' | 'neutral';
+  /** Optional tooltip (e.g. to explain why a value is often 30+ days). */
+  title?: string;
 }) {
   const numericScore = typeof score === 'string' ? Number.parseFloat(score) : score;
   const resolvedTone =
@@ -150,7 +266,7 @@ export function ScorePill({
               : 'negative');
 
   return (
-    <div className={clsx('score-pill', `score-pill--${resolvedTone}`)}>
+    <div className={clsx('score-pill', `score-pill--${resolvedTone}`)} title={title}>
       <span>{label}</span>
       <strong>{typeof score === 'number' ? Math.round(score) : score}</strong>
     </div>
@@ -230,17 +346,32 @@ export function Sparkline({
 export function Table({
   columns,
   rows,
+  numericColumnIndices,
+  sortColumnIndex,
+  sortDirection,
 }: {
   columns: string[];
   rows: ReactNode[][];
+  /** Zero-based indices of columns that should be right-aligned (e.g. numbers). */
+  numericColumnIndices?: number[];
+  /** Zero-based index of the column that is currently sorted. */
+  sortColumnIndex?: number;
+  sortDirection?: 'asc' | 'desc';
 }) {
   return (
     <div className="table-shell">
       <table className="data-table">
         <thead>
           <tr>
-            {columns.map((column) => (
-              <th key={column}>{column}</th>
+            {columns.map((column, i) => (
+              <th key={column}>
+                {column}
+                {sortColumnIndex === i && sortDirection != null ? (
+                  <span className="data-table__sort-icon" aria-hidden>
+                    {sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </span>
+                ) : null}
+              </th>
             ))}
           </tr>
         </thead>
@@ -248,7 +379,12 @@ export function Table({
           {rows.map((row, index) => (
             <tr key={index}>
               {row.map((cell, cellIndex) => (
-                <td key={`${index}-${cellIndex}`}>{cell}</td>
+                <td
+                  key={`${index}-${cellIndex}`}
+                  className={numericColumnIndices?.includes(cellIndex) ? 'data-table__cell--num' : undefined}
+                >
+                  {cell}
+                </td>
               ))}
             </tr>
           ))}

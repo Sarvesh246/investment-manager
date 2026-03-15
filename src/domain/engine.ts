@@ -1,26 +1,43 @@
-import { average, clamp, percentileRank, round, sigmoid, sum, toScore } from './math';
+import { average, clamp, correlationCoefficient, percentileRank, round, sigmoid, sum, toScore } from './math';
 import { replayTransactions } from './portfolioAccounting';
 import type {
   ActionLabel,
   AlertItem,
   AllocationSuggestion,
   CommandCenterModel,
+  ConfidenceBand,
+  DecisionFrame,
   DeploymentPlan,
   ExpectedReturnScenario,
   Explainability,
   FitImpact,
+  FreshnessBreakdown,
+  FreshnessHierarchy,
   HoldingAnalysis,
   MockDataset,
+  OpportunityRadarItem,
   PortfolioLedgerSummary,
+  PortfolioFragilityAnalysis,
+  PortfolioIQSummary,
   PlannerInputs,
+  RecommendationRecord,
+  RecommendationRunSnapshot,
   RegimeSnapshot,
+  RecommendationChange,
+  RiskBudgetSummary,
   RiskBreakdown,
   RiskBucket,
   ScoreBreakdown,
   ScoreContribution,
   ScoreCard,
   SecuritySeed,
+  SellDiscipline,
+  SignalAudit,
+  StressScenarioResult,
   StrategyWeights,
+  ThesisSummary,
+  ThesisHealth,
+  WatchlistSignal,
 } from './types';
 
 const opportunityWeights = {
@@ -115,6 +132,387 @@ function daysBetween(earlier: string | undefined, later: string | undefined) {
   return Math.max(0, Math.round((laterDate.getTime() - earlierDate.getTime()) / (24 * 60 * 60 * 1000)));
 }
 
+function meanAbsoluteDeviation(values: number[]) {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  const center = average(values);
+  return average(values.map((value) => Math.abs(value - center)));
+}
+
+function freshnessStatus(days: number, freshCutoff: number, staleCutoff: number) {
+  if (days <= freshCutoff) {
+    return 'fresh' as const;
+  }
+  if (days <= staleCutoff) {
+    return 'aging' as const;
+  }
+  return 'stale' as const;
+}
+
+function confidenceBand(confidence: number, dataQualityScore: number, overallRisk: number): ConfidenceBand {
+  if (confidence >= 76 && dataQualityScore >= 72 && overallRisk <= 60) {
+    return 'High confidence';
+  }
+  if (confidence >= 58 && dataQualityScore >= 54) {
+    return 'Medium confidence';
+  }
+  return 'Low confidence';
+}
+
+function crowdingScore(values: number[]) {
+  const level = average(values);
+  const dispersion = meanAbsoluteDeviation(values);
+  return round(clamp(level - dispersion * 2.2 - 44, 0, 100), 1);
+}
+
+type SignalAuditMember = {
+  label: string;
+  value: number;
+  weight: number;
+  series: number[];
+};
+
+function detectCorrelatedPairs(family: string, members: SignalAuditMember[]) {
+  const pairs: SignalAudit['correlatedPairs'] = [];
+
+  for (let leftIndex = 0; leftIndex < members.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < members.length; rightIndex += 1) {
+      const correlation = round(
+        correlationCoefficient(members[leftIndex].series, members[rightIndex].series),
+        2,
+      );
+
+      if (Math.abs(correlation) < 0.78) {
+        continue;
+      }
+
+      pairs.push({
+        family,
+        pair: `${members[leftIndex].label} / ${members[rightIndex].label}`,
+        correlation,
+      });
+    }
+  }
+
+  return pairs;
+}
+
+function summarizeSignalFamily(family: string, members: SignalAuditMember[]) {
+  const correlatedPairs = detectCorrelatedPairs(family, members);
+  const weightShare = round(sum(members.map((member) => member.weight)) * 100, 1);
+
+  return {
+    family,
+    averageScore: round(average(members.map((member) => member.value)), 1),
+    crowding: crowdingScore(members.map((member) => member.value)),
+    weightShare,
+    correlatedPairs: correlatedPairs.map((pair) => `${pair.pair} (${pair.correlation})`),
+  };
+}
+
+function confidenceCalibrationAdjustment(
+  dataset: MockDataset,
+  band: ConfidenceBand,
+) {
+  const metric = dataset.validationReport?.confidenceBands?.find((item) => item.band === band);
+
+  if (!metric || metric.count < 5) {
+    return 0;
+  }
+
+  const calibrationGap = metric.realized - metric.predicted;
+  return round(clamp(calibrationGap * 12, -6, 6), 1);
+}
+
+function suggestedRangeMidpoint(value: number, downsideBias: number, maxValue: number) {
+  const width = clamp(0.18 + downsideBias, 0.12, 0.4);
+  const lower = round(clamp(value * (1 - width), 0, maxValue), 3);
+  const upper = round(clamp(value * (1 + width * 0.65), lower, maxValue), 3);
+
+  return [lower, upper] as [number, number];
+}
+
+function actionRank(action: ActionLabel) {
+  switch (action) {
+    case 'Buy now':
+      return 0;
+    case 'Buy partial':
+      return 1;
+    case 'Accumulate slowly':
+      return 2;
+    case 'Watch only':
+      return 3;
+    case 'Reassess after earnings':
+      return 4;
+    case 'High-upside / high-risk only':
+      return 5;
+    case 'Hold':
+      return 6;
+    case 'Trim':
+      return 7;
+    case 'Take profit':
+      return 8;
+    case 'De-risk':
+      return 9;
+    case 'Rotate':
+      return 10;
+    case 'Sell':
+      return 11;
+    case 'Not suitable for current portfolio':
+      return 12;
+    case 'Avoid':
+    default:
+      return 13;
+  }
+}
+
+function downgradeBuyAction(action: ActionLabel): ActionLabel {
+  switch (action) {
+    case 'Buy now':
+      return 'Buy partial';
+    case 'Buy partial':
+      return 'Accumulate slowly';
+    case 'Accumulate slowly':
+      return 'Watch only';
+    default:
+      return action;
+  }
+}
+
+type ActionInputs = {
+  isHeld: boolean;
+  excludedSector: boolean;
+  avoidEarningsRisk: boolean;
+  earningsDays: number;
+  businessQuality: number;
+  entryQuality: number;
+  opportunityScore: number;
+  portfolioFitScore: number;
+  timingScore: number;
+  overallRisk: number;
+  confidence: number;
+  composite: number;
+  expected12m: number;
+  excessiveSingle: boolean;
+  excessiveSector: boolean;
+  regimeTilt: number;
+  dataQualityScore: number;
+};
+
+function classifyAction(inputs: ActionInputs): ActionLabel {
+  const riskTightener = inputs.regimeTilt < 0 ? 3 : inputs.regimeTilt > 0.1 ? -1 : 0;
+  const confidenceTightener = inputs.regimeTilt < 0 ? 3 : 0;
+
+  if (inputs.excludedSector) {
+    return 'Avoid';
+  }
+
+  if (inputs.isHeld && (inputs.excessiveSingle || inputs.excessiveSector) && inputs.overallRisk >= 56) {
+    return 'Trim';
+  }
+
+  if (inputs.isHeld) {
+    return inputs.composite >= 56 && inputs.businessQuality >= 52 ? 'Hold' : 'Trim';
+  }
+
+  if (inputs.avoidEarningsRisk && inputs.earningsDays < 14) {
+    return 'Reassess after earnings';
+  }
+
+  if (inputs.portfolioFitScore < 42 && inputs.opportunityScore >= 65) {
+    return 'Not suitable for current portfolio';
+  }
+
+  if (inputs.overallRisk >= 74 + riskTightener && inputs.expected12m > 0.16) {
+    return 'High-upside / high-risk only';
+  }
+
+  if (inputs.businessQuality >= 72 && inputs.entryQuality < 54) {
+    return 'Watch only';
+  }
+
+  if (
+    inputs.composite >= 70 + riskTightener &&
+    inputs.businessQuality >= 62 &&
+    inputs.entryQuality >= 58 &&
+    inputs.timingScore >= 60 + riskTightener &&
+    inputs.overallRisk <= 58 - riskTightener &&
+    inputs.confidence >= 64 + confidenceTightener &&
+    inputs.dataQualityScore >= 62 &&
+    inputs.expected12m >= 0.08
+  ) {
+    return 'Buy now';
+  }
+
+  if (
+    inputs.composite >= 63 + Math.max(riskTightener, 0) &&
+    inputs.businessQuality >= 58 &&
+    inputs.entryQuality >= 54 &&
+    inputs.timingScore >= 55 &&
+    inputs.overallRisk <= 68 - Math.max(riskTightener, 0) &&
+    inputs.dataQualityScore >= 56 &&
+    inputs.expected12m >= 0.05
+  ) {
+    return 'Buy partial';
+  }
+
+  if (inputs.opportunityScore >= 64 && inputs.composite >= 55 && inputs.expected12m >= 0.03) {
+    return 'Accumulate slowly';
+  }
+
+  if (inputs.opportunityScore >= 54 || inputs.portfolioFitScore >= 58) {
+    return 'Watch only';
+  }
+
+  return 'Avoid';
+}
+
+function applyActionHysteresis({
+  action,
+  previousAction,
+  compositeDelta,
+  riskDelta,
+  hardLocked,
+}: {
+  action: ActionLabel;
+  previousAction: ActionLabel;
+  compositeDelta: number;
+  riskDelta: number;
+  hardLocked: boolean;
+}) {
+  if (hardLocked) {
+    return action;
+  }
+
+  if (Math.abs(compositeDelta) < 4 && Math.abs(riskDelta) < 5) {
+    return previousAction;
+  }
+
+  return action;
+}
+
+function thesisHealth({
+  action,
+  businessQuality,
+  compositeDelta,
+  riskDelta,
+  downsideDelta,
+}: {
+  action: ActionLabel;
+  businessQuality: number;
+  compositeDelta: number;
+  riskDelta: number;
+  downsideDelta: number;
+}): ThesisHealth {
+  if ((action === 'Sell' && businessQuality < 52) || (compositeDelta <= -8 && riskDelta >= 8)) {
+    return 'Broken';
+  }
+
+  if (['Trim', 'De-risk', 'Rotate', 'Take profit'].includes(action) || compositeDelta <= -4 || riskDelta >= 5 || downsideDelta >= 0.025) {
+    return 'Weakening';
+  }
+
+  if (compositeDelta >= 4 && riskDelta <= -4 && downsideDelta <= -0.015) {
+    return 'Improving';
+  }
+
+  return 'Stable';
+}
+
+function buildFreshnessBreakdown(
+  dataset: MockDataset,
+  seed: SecuritySeed,
+  dataQuality: ReturnType<typeof assessDataQuality>,
+): FreshnessBreakdown {
+  const quoteAsOf = seed.priceAsOf ?? dataset.asOf;
+  const macroFreshnessDays = dataset.macroSnapshot ? daysBetween(dataset.macroSnapshot.asOf, dataset.asOf) : undefined;
+  const validationFreshnessDays = dataset.validationReport
+    ? daysBetween(dataset.validationReport.generatedAt, dataset.asOf)
+    : undefined;
+  const modelAsOf = dataset.snapshotGeneratedAt ?? dataset.asOf;
+
+  return {
+    quoteAsOf,
+    quoteFreshnessDays: dataQuality.priceFreshnessDays,
+    quoteStatus: freshnessStatus(dataQuality.priceFreshnessDays, 1, 4),
+    fundamentalsAsOf: seed.fundamentalsLastUpdated,
+    fundamentalsFreshnessDays: dataQuality.fundamentalsFreshnessDays,
+    fundamentalsStatus: freshnessStatus(dataQuality.fundamentalsFreshnessDays, 45, 180),
+    macroAsOf: dataset.macroSnapshot?.asOf,
+    macroFreshnessDays,
+    macroStatus: macroFreshnessDays != null ? freshnessStatus(macroFreshnessDays, 7, 35) : 'aging',
+    validationAsOf: dataset.validationReport?.generatedAt,
+    validationFreshnessDays,
+    validationStatus:
+      validationFreshnessDays != null ? freshnessStatus(validationFreshnessDays, 14, 45) : 'aging',
+    modelAsOf,
+    modelFreshnessDays: daysBetween(modelAsOf, dataset.asOf),
+    modelStatus: freshnessStatus(daysBetween(modelAsOf, dataset.asOf), 1, 5),
+  };
+}
+
+function buildFreshnessHierarchy(dataset: MockDataset, scorecards: ScoreCard[]): FreshnessHierarchy {
+  const quoteFreshnessDays = scorecards.length > 0
+    ? round(average(scorecards.map((card) => card.freshness.quoteFreshnessDays)), 1)
+    : daysBetween(dataset.asOf, dataset.asOf);
+  const fundamentalsFreshnessDays = scorecards.length > 0
+    ? round(average(scorecards.map((card) => card.freshness.fundamentalsFreshnessDays)), 1)
+    : daysBetween(dataset.asOf, dataset.asOf);
+  const macroFreshnessDays = dataset.macroSnapshot ? daysBetween(dataset.macroSnapshot.asOf, dataset.asOf) : undefined;
+  const validationFreshnessDays = dataset.validationReport
+    ? daysBetween(dataset.validationReport.generatedAt, dataset.asOf)
+    : undefined;
+  const modelAsOf = dataset.snapshotGeneratedAt ?? dataset.asOf;
+  const modelFreshnessDays = daysBetween(modelAsOf, dataset.asOf);
+
+  return {
+    quotes: {
+      label: 'Quotes',
+      asOf: dataset.asOf,
+      ageDays: quoteFreshnessDays,
+      status: freshnessStatus(quoteFreshnessDays, 1, 4),
+      note: 'Quote freshness reflects the market-price layer, not the full engine.',
+    },
+    fundamentals: {
+      label: 'Fundamentals',
+      asOf: scorecards[0]?.freshness.fundamentalsAsOf ?? dataset.asOf,
+      ageDays: fundamentalsFreshnessDays,
+      status: freshnessStatus(fundamentalsFreshnessDays, 45, 180),
+      note: 'Fundamental freshness is averaged across the covered universe.',
+    },
+    macro: {
+      label: 'Macro',
+      asOf: dataset.macroSnapshot?.asOf,
+      ageDays: macroFreshnessDays,
+      status: macroFreshnessDays != null ? freshnessStatus(macroFreshnessDays, 7, 35) : 'aging',
+      note: dataset.macroSnapshot
+        ? dataset.macroSnapshot.narrative
+        : 'Macro overlay is not currently loaded.',
+    },
+    validation: {
+      label: 'Validation',
+      asOf: dataset.validationReport?.generatedAt,
+      ageDays: validationFreshnessDays,
+      status:
+        validationFreshnessDays != null ? freshnessStatus(validationFreshnessDays, 14, 45) : 'aging',
+      note: dataset.validationReport
+        ? `${dataset.validationReport.pairCount} validation pair${
+            dataset.validationReport.pairCount === 1 ? '' : 's'
+          } are in the latest walk-forward report.`
+        : 'Validation report is not currently available.',
+    },
+    model: {
+      label: 'Model',
+      asOf: modelAsOf,
+      ageDays: modelFreshnessDays,
+      status: freshnessStatus(modelFreshnessDays, 1, 5),
+      note: 'Model freshness tracks when the research snapshot behind the engine was last rebuilt.',
+    },
+  };
+}
+
 function decileReturnLookup(score: number) {
   const decile = clamp(Math.ceil(score / 10), 1, 10);
   const table = [-0.12, -0.08, -0.05, -0.02, 0.01, 0.04, 0.07, 0.1, 0.14, 0.19];
@@ -155,7 +553,10 @@ function assessDataQuality(dataset: MockDataset, seed: SecuritySeed) {
     (seed.sector === 'Unclassified' || seed.description.includes('provisional') ? 3 : 0);
   const missingCoreFields = seed.dataQuality?.missingCoreFields?.length ?? 0;
   const coverage = seed.dataQuality?.coverage ?? (sourceMode === 'live' ? 88 : sourceMode === 'blended' ? 80 : 72);
-  const staleFundamentalPenalty = Math.max(0, fundamentalsFreshnessDays - 180) * 0.08;
+  let staleFundamentalPenalty = Math.max(0, fundamentalsFreshnessDays - 180) * 0.08;
+  if (priceFreshnessDays <= 3 && fundamentalsFreshnessDays > 45) {
+    staleFundamentalPenalty = Math.min(staleFundamentalPenalty, 10);
+  }
   const pricePenalty = priceFreshnessDays * 2.5;
   const inferredPenalty = inferredSignals * 7;
   const missingPenalty = missingCoreFields * 5;
@@ -254,6 +655,203 @@ function describeStrategy(strategyWeights: StrategyWeights) {
     .join(', ');
 }
 
+function thesisHealthScore(health: ThesisHealth, businessQuality: number, downsideDelta: number) {
+  const base =
+    health === 'Improving' ? 82 : health === 'Stable' ? 66 : health === 'Weakening' ? 42 : 18;
+
+  return round(clamp(base + (businessQuality - 60) * 0.35 - Math.max(downsideDelta, 0) * 180, 6, 96));
+}
+
+function driverText(label: string) {
+  switch (label) {
+    case 'Growth engine':
+      return 'Sales and earnings are growing well.';
+    case 'Profitability and quality':
+      return 'Margins and cash flow look healthy.';
+    case 'Valuation context':
+      return 'Price looks reasonable for the quality on offer.';
+    case 'Market support':
+      return 'Revisions, insiders, or catalysts are helping the setup.';
+    case 'Balance-sheet strength':
+      return 'Debt and liquidity look manageable.';
+    case 'Trend quality':
+      return 'Price trend is still moving the right way.';
+    case 'Pullback quality':
+      return 'The recent dip looks controlled rather than broken.';
+    case 'Persistence':
+      return 'The recent move has been sticking, not fading quickly.';
+    case 'Volatility window':
+      return 'Volatility is not overwhelming the setup right now.';
+    case 'Diversification benefit':
+      return 'It adds something new to the portfolio.';
+    case 'Sector balance':
+      return 'It does not overload an already crowded area.';
+    case 'Factor balance':
+      return 'It helps balance the style mix you already own.';
+    case 'Risk-budget compatibility':
+      return 'The position fits the amount of risk the portfolio can carry.';
+    case 'Capital and rule fit':
+      return 'It fits your cash and portfolio rules.';
+    default:
+      return `${label} is helping the case.`;
+  }
+}
+
+function riskText(label: string) {
+  switch (label) {
+    case 'Financial stress':
+      return 'Debt or liquidity could become a problem.';
+    case 'Cash burn and dilution':
+      return 'The company may need outside cash or could issue more shares.';
+    case 'Event sensitivity':
+      return 'Too much depends on one earnings report or catalyst.';
+    case 'Margin fragility':
+      return 'Margins could weaken more than expected.';
+    case 'Tail-risk behavior':
+      return 'The stock has a history of sharp downside moves.';
+    case 'Valuation vulnerability':
+      return 'Price may already be too high compared with earnings or cash flow.';
+    case 'Portfolio overlap':
+      return 'It moves too much like names you already own.';
+    case 'Sector pressure':
+      return 'It would push too much money into the same area.';
+    default:
+      return `${label} is the main thing to watch.`;
+  }
+}
+
+function thesisSummaryForScorecard(
+  symbol: string,
+  drivers: ScoreContribution[],
+  risks: ScoreContribution[],
+  healthScore: number,
+): ThesisSummary {
+  const driverList = drivers.slice(0, 3).map((driver) => driverText(driver.label));
+  const riskList = risks.slice(0, 3).map((risk) => riskText(risk.label));
+  const driverLead = driverList[0] ?? 'The setup has some support.';
+  const riskLead = riskList[0] ?? 'There is no single dominant problem, but risk still matters.';
+
+  return {
+    thesisSummary: `${symbol} looks interesting because ${driverLead.toLowerCase()} Main watch-out: ${riskLead.toLowerCase()}`,
+    drivers: driverList,
+    risks: riskList,
+    thesisHealthScore: healthScore,
+  };
+}
+
+function themeExposureLabels(seed: SecuritySeed) {
+  const themes = new Set<string>();
+
+  if (
+    /semiconductor|data center|infrastructure software|networking/i.test(seed.industry) ||
+    /ai|infrastructure/i.test(seed.description)
+  ) {
+    themes.add('AI infrastructure');
+  }
+
+  if (seed.sector === 'Technology' && seed.factors.growth >= 70) {
+    themes.add('High-growth tech');
+  }
+
+  if (seed.sector === 'Energy') {
+    themes.add('Energy prices');
+  }
+
+  if (seed.sector === 'Financials' || seed.sector === 'Real Estate') {
+    themes.add('Interest-rate sensitive');
+  }
+
+  if (seed.sector === 'Consumer Discretionary') {
+    themes.add('Consumer spending');
+  }
+
+  if (seed.sector === 'Industrials' || seed.metrics.cyclicality >= 60) {
+    themes.add('Economic cycle risk');
+  }
+
+  if (seed.factors.defensive >= 70) {
+    themes.add('Defensive shelter');
+  }
+
+  return [...themes];
+}
+
+function strategyAlignmentScore(args: {
+  strategyWeights: StrategyWeights;
+  seed: SecuritySeed;
+  growth: number;
+  quality: number;
+  valuation: number;
+  momentum: number;
+  support: number;
+  balanceSheet: number;
+  businessQuality: number;
+  timingScore: number;
+  portfolioFitScore: number;
+  overallRisk: number;
+  marketRisk: number;
+  valuationRisk: number;
+}) {
+  const {
+    strategyWeights,
+    seed,
+    growth,
+    quality,
+    valuation,
+    momentum,
+    support,
+    balanceSheet,
+    businessQuality,
+    timingScore,
+    portfolioFitScore,
+    overallRisk,
+    marketRisk,
+    valuationRisk,
+  } = args;
+
+  const score =
+    strategyWeights.growth * average([growth, quality, momentum]) +
+    strategyWeights.balanced * average([businessQuality, portfolioFitScore, 100 - overallRisk]) +
+    strategyWeights.value * average([valuation, balanceSheet, 100 - valuationRisk]) +
+    strategyWeights.momentum * average([momentum, timingScore, support]) +
+    strategyWeights.quality * average([quality, balanceSheet, businessQuality]) +
+    strategyWeights.speculative * average([support, momentum, growth]) +
+    strategyWeights.defensive * average([seed.factors.defensive, balanceSheet, 100 - marketRisk]) +
+    strategyWeights.dividend * average([quality, balanceSheet, valuation]);
+
+  return round(clamp(score, 0, 100), 1);
+}
+
+function macroAlignmentScore(args: {
+  regime: RegimeSnapshot;
+  seed: SecuritySeed;
+  quality: number;
+  balanceSheet: number;
+  growth: number;
+  momentum: number;
+  marketRisk: number;
+  businessRisk: number;
+}) {
+  const { regime, seed, quality, balanceSheet, growth, momentum, marketRisk, businessRisk } = args;
+
+  if (regime.key === 'Risk-off defensiveness' || regime.key === 'Bearish trend / high vol') {
+    return round(
+      average([seed.factors.defensive, quality, balanceSheet, 100 - marketRisk, 100 - seed.metrics.cyclicality]),
+      1,
+    );
+  }
+
+  if (regime.key === 'Risk-on rotation' || regime.key === 'Bullish trend / low vol') {
+    return round(average([growth, momentum, quality, 100 - businessRisk * 0.5]), 1);
+  }
+
+  if (regime.key === 'Bullish trend / high vol') {
+    return round(average([quality, momentum, balanceSheet, 100 - marketRisk]), 1);
+  }
+
+  return round(average([quality, balanceSheet, 100 - marketRisk, 100 - businessRisk]), 1);
+}
+
 function inferRegime(dataset: MockDataset): RegimeSnapshot {
   const benchmark = dataset.benchmark;
   const macro = dataset.macroSnapshot;
@@ -264,6 +862,23 @@ function inferRegime(dataset: MockDataset): RegimeSnapshot {
     (macro?.highYieldSpread ?? 0) >= 5 ||
     (macro?.curve2s10s ?? 0) < -0.2;
   const macroTail = macro ? ` ${macro.narrative}` : '';
+  const environment = new Set<string>();
+
+  if (benchmark.riskAppetite >= 0.62 && benchmark.breadth >= 0.55) {
+    environment.add('Risk-on');
+  }
+  if (benchmark.riskAppetite < 0.45 || macroTightening) {
+    environment.add('Risk-off');
+  }
+  if ((macro?.inflationYoY ?? 0) >= 3.2) {
+    environment.add('High inflation');
+  }
+  if ((macro?.curve2s10s ?? 0) < -0.1 || (macro?.unemploymentRate ?? 0) >= 4.5) {
+    environment.add('Slowing growth');
+  }
+  if (benchmark.ret3m >= 0.06 && benchmark.breadth >= 0.52) {
+    environment.add('Strong growth');
+  }
 
   if (trendScore === 2 && benchmark.realizedVolPercentile < 0.45 && !macroTightening) {
     return {
@@ -273,6 +888,7 @@ function inferRegime(dataset: MockDataset): RegimeSnapshot {
       narrative:
         `Trend is supportive and volatility is contained. Momentum and quality can carry more weight, but concentration still matters.${macroTail}`,
       factorEmphasis: ['momentum', 'quality', 'cash deployment'],
+      environment: [...environment, 'Risk-on', 'Strong growth'],
     };
   }
 
@@ -284,6 +900,7 @@ function inferRegime(dataset: MockDataset): RegimeSnapshot {
       narrative:
         `Trend remains constructive, but volatility is elevated. The system keeps buying selective and reserve-aware rather than fully aggressive.${macroTail}`,
       factorEmphasis: ['quality', 'timing', 'reserve discipline'],
+      environment: [...environment, 'Risk-on'],
     };
   }
 
@@ -295,6 +912,7 @@ function inferRegime(dataset: MockDataset): RegimeSnapshot {
       narrative:
         `Weak trend and high volatility favor cash preservation, lower fragility, and defense over incremental risk.${macroTail}`,
       factorEmphasis: ['defense', 'cash', 'fragility control'],
+      environment: [...environment, 'Risk-off'],
     };
   }
 
@@ -306,6 +924,7 @@ function inferRegime(dataset: MockDataset): RegimeSnapshot {
       narrative:
         `Leadership is narrow and investors are avoiding risk. The engine prefers defense, balance-sheet strength, and wider reserve cash.${macroTail}`,
       factorEmphasis: ['defensive fit', 'balance sheet', 'cash'],
+      environment: [...environment, 'Risk-off'],
     };
   }
 
@@ -317,6 +936,7 @@ function inferRegime(dataset: MockDataset): RegimeSnapshot {
       narrative:
         `Breadth and risk appetite are favorable. The model allows more upside pursuit, but not at the cost of breaching portfolio constraints.${macroTail}`,
       factorEmphasis: ['growth', 'momentum', 'diversified adds'],
+      environment: [...environment, 'Risk-on'],
     };
   }
 
@@ -327,6 +947,7 @@ function inferRegime(dataset: MockDataset): RegimeSnapshot {
     narrative:
       `The market signal is mixed. The engine emphasizes selective entries, staged buys, and stronger cash discipline.${macroTail}`,
     factorEmphasis: ['timing', 'fit', 'staging'],
+    environment: environment.size > 0 ? [...environment] : ['Mixed market'],
   };
 }
 
@@ -687,6 +1308,168 @@ function scoreSecurity(
     },
   ]);
 
+  const baseSignalFamilies = [
+    summarizeSignalFamily('Trend / momentum', [
+      {
+        label: 'Momentum quality',
+        value: momentum,
+        weight: opportunityWeights.momentum * 0.36,
+        series: universe.map((security) =>
+          average([
+            security.metrics.ret3m * 100,
+            security.metrics.ret6m * 100,
+            security.metrics.relativeStrength,
+          ]),
+        ),
+      },
+      {
+        label: 'Trend alignment',
+        value: trend,
+        weight: timingWeights.trend * 0.14,
+        series: universe.map((security) =>
+          average([
+            security.metrics.ret1m * 100,
+            security.metrics.ret3m * 100,
+            security.metrics.trendSlope63d,
+          ]),
+        ),
+      },
+      {
+        label: 'Pullback quality',
+        value: pullback,
+        weight: timingWeights.pullback * 0.14,
+        series: universe.map((security) => security.metrics.pullbackQuality),
+      },
+      {
+        label: 'Momentum persistence',
+        value: persistence,
+        weight: timingWeights.persistence * 0.14,
+        series: universe.map((security) =>
+          average([
+            security.metrics.trendSlope63d,
+            security.metrics.momentumAcceleration,
+            security.metrics.relativeStrength,
+          ]),
+        ),
+      },
+    ]),
+    summarizeSignalFamily('Valuation', [
+      {
+        label: 'Valuation context',
+        value: valuation,
+        weight: opportunityWeights.valuation * 0.36,
+        series: universe.map((security) =>
+          average([
+            security.metrics.sectorValuationPercentile,
+            security.metrics.selfValuationPercentile,
+            -security.metrics.growthAdjustedValuation * 10,
+          ]),
+        ),
+      },
+      {
+        label: 'Valuation vulnerability',
+        value: valuationVulnerability,
+        weight: fragilityWeights.valuationVulnerability * 0.24,
+        series: universe.map((security) =>
+          average([
+            security.metrics.sectorValuationPercentile,
+            security.metrics.selfValuationPercentile,
+            security.metrics.growthAdjustedValuation * 10,
+          ]),
+        ),
+      },
+    ]),
+    summarizeSignalFamily('Quality / balance sheet', [
+      {
+        label: 'Profitability and quality',
+        value: quality,
+        weight: opportunityWeights.quality * 0.36,
+        series: universe.map((security) =>
+          average([
+            security.metrics.operatingMargin,
+            security.metrics.fcfMargin,
+            security.metrics.roic,
+          ]),
+        ),
+      },
+      {
+        label: 'Balance-sheet support',
+        value: balanceSheet,
+        weight: opportunityWeights.balanceSheet * 0.36,
+        series: universe.map((security) =>
+          average([
+            security.metrics.cashToDebt * 100,
+            security.metrics.currentRatio * 30,
+            security.metrics.quickRatio * 30,
+          ]),
+        ),
+      },
+      {
+        label: 'Financial stress',
+        value: financialStress,
+        weight: fragilityWeights.financialStress * 0.24,
+        series: universe.map((security) =>
+          average([
+            security.metrics.debtToEquity * 10,
+            (1 / Math.max(security.metrics.cashToDebt, 0.05)) * 10,
+            (1 / Math.max(security.metrics.currentRatio, 0.1)) * 10,
+          ]),
+        ),
+      },
+      {
+        label: 'Cash-burn and dilution risk',
+        value: cashBurnDilution,
+        weight: fragilityWeights.cashBurnDilution * 0.24,
+        series: universe.map((security) =>
+          average([
+            -security.metrics.fcfMargin * 100,
+            100 - security.metrics.fcfConsistency,
+            security.metrics.dilutionRate3y * 5000,
+          ]),
+        ),
+      },
+    ]),
+    summarizeSignalFamily('Tail / event risk', [
+      {
+        label: 'Event sensitivity',
+        value: eventSensitivity,
+        weight: fragilityWeights.eventSensitivity * 0.24,
+        series: universe.map((security) =>
+          average([
+            security.metrics.postEarningsGap * 100,
+            security.metrics.eventConcentration,
+            100 - security.metrics.earningsDays,
+          ]),
+        ),
+      },
+      {
+        label: 'Tail and drawdown risk',
+        value: tailRisk,
+        weight: fragilityWeights.tailRisk * 0.24,
+        series: universe.map((security) =>
+          average([
+            security.metrics.vol60d * 100,
+            security.metrics.downsideVol60d * 100,
+            Math.abs(security.metrics.maxDd12m) * 100,
+            security.metrics.crashFrequency * 100,
+            security.metrics.tailLoss * 100,
+          ]),
+        ),
+      },
+      {
+        label: 'Event timing',
+        value: eventWindow,
+        weight: timingWeights.eventWindow * 0.14,
+        series: universe.map((security) =>
+          average([
+            security.metrics.earningsDays,
+            100 - security.metrics.postEarningsGap * 100,
+          ]),
+        ),
+      },
+    ]),
+  ];
+
   const diversification = round(
     average([
       (1 - overlap.corrToPortfolio) * 100,
@@ -758,9 +1541,96 @@ function scoreSecurity(
     },
   ]);
 
+  const signalFamilies = [
+    ...baseSignalFamilies,
+    summarizeSignalFamily('Portfolio context', [
+      {
+        label: 'Portfolio fit',
+        value: portfolioFit.score,
+        weight: 0.18,
+        series: universe.map((security) =>
+          average([
+            security.metrics.beta * 20,
+            security.factors.defensive * 100,
+            security.factors.cyclical * 100,
+          ]),
+        ),
+      },
+    ]),
+  ];
+
+  const correlatedPairs = signalFamilies.flatMap((family) =>
+    family.correlatedPairs.map((pair) => {
+      const correlation = Number(pair.match(/\(([-\d.]+)\)$/)?.[1] ?? 0);
+      return {
+        family: family.family,
+        pair: pair.replace(/\s*\([^)]+\)$/, ''),
+        correlation,
+      };
+    }),
+  );
+  const priceSignalCrowding = crowdingScore([momentum, trend, pullback, persistence, volatilityWindow]);
+  const fragilityCrowding = crowdingScore([
+    financialStress,
+    cashBurnDilution,
+    eventSensitivity,
+    marginFragility,
+    tailRisk,
+    valuationVulnerability,
+  ]);
+  const averageCorrelationPenalty =
+    correlatedPairs.length > 0
+      ? average(correlatedPairs.map((pair) => Math.max(Math.abs(pair.correlation) - 0.78, 0)))
+      : 0;
+  const signalAudit: SignalAudit = {
+    redundancyPenalty: round(
+      clamp(
+        Math.max(priceSignalCrowding - 24, 0) * 0.12 +
+          Math.max(fragilityCrowding - 30, 0) * 0.08 +
+          averageCorrelationPenalty * 12,
+        0,
+        8.5,
+      ),
+      1,
+    ),
+    priceSignalCrowding,
+    fragilityCrowding,
+    families: signalFamilies,
+    correlatedPairs,
+    notes: [
+      ...(priceSignalCrowding >= 30
+        ? ['Several timing and momentum inputs are telling the same price-behavior story, so confidence is trimmed to avoid double counting.']
+        : []),
+      ...(fragilityCrowding >= 36
+        ? ['Multiple fragility inputs are moving together, so risk is treated as a cluster rather than independent warnings.']
+        : []),
+      ...(correlatedPairs.length > 0
+        ? [`Highly correlated signal pairs detected: ${correlatedPairs
+            .slice(0, 3)
+            .map((pair) => `${pair.pair} in ${pair.family}`)
+            .join('; ')}.`]
+        : []),
+    ],
+  };
+
   const dataQuality = assessDataQuality(dataset, seed);
   const businessQuality = round(average([growth, quality, balanceSheet, support]));
   const entryQuality = round(average([valuation, momentum, timing.score]));
+  const dataReliabilityScore = round(
+    clamp(
+      average([
+        dataQuality.score,
+        seed.metrics.liquidityScore,
+        100 - Math.min(dataQuality.fundamentalsFreshnessDays, 120) * 0.6,
+      ]),
+      0,
+      100,
+    ),
+  );
+
+  const priceFreshForConfidence = dataQuality.priceFreshnessDays <= 3;
+  const fundamentalsStaleForConfidence = dataQuality.fundamentalsFreshnessDays > 45;
+  const leanOnMarketData = priceFreshForConfidence && fundamentalsStaleForConfidence;
 
   let confidence = 70;
   confidence -= seed.metrics.liquidityScore < 85 ? (85 - seed.metrics.liquidityScore) * 0.8 : 0;
@@ -768,10 +1638,20 @@ function scoreSecurity(
   confidence -= seed.metrics.postEarningsGap > 0.08 ? 6 : 0;
   confidence -= Math.abs(opportunity.score - timing.score) > 18 ? 5 : 0;
   confidence -= Math.abs(opportunity.score - portfolioFit.score) > 20 ? 4 : 0;
-  confidence -= (100 - dataQuality.score) * 0.18;
+  confidence -= (100 - dataQuality.score) * (leanOnMarketData ? 0.09 : 0.18);
+  confidence -= (100 - dataReliabilityScore) * 0.06;
+  confidence -= signalAudit.redundancyPenalty * 1.4;
   confidence += seed.marketCapBucket === 'mega' ? 4 : 0;
   confidence += seed.metrics.fcfConsistency > 80 ? 3 : 0;
-  confidence = round(clamp(confidence, 22, 95));
+  if (leanOnMarketData) {
+    confidence += Math.min(timing.score / 12, 5);
+  }
+  const sectorContextEntry = dataset.sectorContext?.find((e) => e.sector === seed.sector);
+  if (sectorContextEntry) {
+    const headwind = sectorContextEntry.headwind ?? 0;
+    const tailwind = sectorContextEntry.tailwind ?? 0;
+    confidence += round((tailwind - headwind) * 0.03);
+  }
 
   const marketRisk = round(
     average([
@@ -817,13 +1697,55 @@ function scoreSecurity(
     ]),
   );
 
-  const overallRisk = round(
+  let overallRisk = round(
     marketRisk * 0.25 +
       eventRisk * 0.15 +
       businessRisk * 0.25 +
       valuationRisk * 0.1 +
       portfolioContribution * 0.25,
   );
+  if (sectorContextEntry) {
+    const headwind = sectorContextEntry.headwind ?? 0;
+    const tailwind = sectorContextEntry.tailwind ?? 0;
+    overallRisk = round(clamp(overallRisk + (headwind - tailwind) * 0.04, 0, 100));
+  }
+
+  const macroAlignment = macroAlignmentScore({
+    regime,
+    seed,
+    quality,
+    balanceSheet,
+    growth,
+    momentum,
+    marketRisk,
+    businessRisk,
+  });
+  const strategyAlignment = strategyAlignmentScore({
+    strategyWeights: dataset.user.strategyWeights,
+    seed,
+    growth,
+    quality,
+    valuation,
+    momentum,
+    support,
+    balanceSheet,
+    businessQuality,
+    timingScore: timing.score,
+    portfolioFitScore: portfolioFit.score,
+    overallRisk,
+    marketRisk,
+    valuationRisk,
+  });
+
+  confidence += round((macroAlignment - 50) * 0.08);
+  confidence += round((strategyAlignment - 50) * 0.04);
+  const provisionalConfidenceBand = confidenceBand(
+    clamp(confidence, 22, 95),
+    dataQuality.score,
+    preliminaryRisk,
+  );
+  confidence += confidenceCalibrationAdjustment(dataset, provisionalConfidenceBand);
+  confidence = round(clamp(confidence, 22, 95));
 
   const bucket = riskBucket(overallRisk);
   const risk: RiskBreakdown = {
@@ -861,14 +1783,18 @@ function scoreSecurity(
     clamp(
       0.36 * opp -
         0.24 * frag +
-        0.14 * time +
-        0.18 * fit +
-        0.08 * conf +
-        regimeBonus * 0.18,
+      0.14 * time +
+      0.18 * fit +
+      0.08 * conf +
+      regimeBonus * 0.18 +
+      ((strategyAlignment - 50) / 50) * 0.08 +
+      ((macroAlignment - 50) / 50) * 0.06,
       -1,
       1,
     ),
   );
+
+  composite = Math.max(0, composite - signalAudit.redundancyPenalty * 0.35);
 
   if (dataset.user.excludedSectors.includes(seed.sector)) {
     composite = Math.min(composite, 38);
@@ -939,44 +1865,84 @@ function scoreSecurity(
     };
   });
 
+  const freshness = buildFreshnessBreakdown(dataset, seed, dataQuality);
+  const recommendationPreviousComposite =
+    seed.scoreHistory[seed.scoreHistory.length - 1] ?? round(composite);
+  const recommendationPreviousRisk = seed.previousRisk ?? overallRisk;
+  const recommendationPreviousDownside = seed.previousDownside ?? risk.expectedDownside;
   const excessiveSector = sectorWeightAfter > dataset.user.maxSectorWeight;
   const excessiveSingle =
     currentWeight > dataset.user.maxSinglePositionWeight ||
     (currentWeight === 0 && testWeight > dataset.user.maxSinglePositionWeight);
+  const previousAction = classifyAction({
+    isHeld,
+    excludedSector: dataset.user.excludedSectors.includes(seed.sector),
+    avoidEarningsRisk: dataset.user.avoidEarningsRisk,
+    earningsDays: seed.metrics.earningsDays,
+    businessQuality,
+    entryQuality,
+    opportunityScore: opportunity.score,
+    portfolioFitScore: portfolioFit.score,
+    timingScore: timing.score,
+    overallRisk: recommendationPreviousRisk,
+    confidence: Math.max(confidence - 2, 0),
+    composite: recommendationPreviousComposite,
+    expected12m: expectedReturns[2].expected,
+    excessiveSingle,
+    excessiveSector,
+    regimeTilt: regime.deploymentTilt,
+    dataQualityScore: dataQuality.score,
+  });
+  const compositeDelta = round(composite - recommendationPreviousComposite, 1);
+  const riskDelta = round(overallRisk - recommendationPreviousRisk, 1);
+  const downsideDelta = round(risk.expectedDownside - recommendationPreviousDownside, 3);
 
-  let action: ActionLabel = 'Watch only';
+  let action = classifyAction({
+    isHeld,
+    excludedSector: dataset.user.excludedSectors.includes(seed.sector),
+    avoidEarningsRisk: dataset.user.avoidEarningsRisk,
+    earningsDays: seed.metrics.earningsDays,
+    businessQuality,
+    entryQuality,
+    opportunityScore: opportunity.score,
+    portfolioFitScore: portfolioFit.score,
+    timingScore: timing.score,
+    overallRisk,
+    confidence,
+    composite,
+    expected12m: expectedReturns[2].expected,
+    excessiveSingle,
+    excessiveSector,
+    regimeTilt: regime.deploymentTilt,
+    dataQualityScore: dataQuality.score,
+  });
 
-  if (dataset.user.excludedSectors.includes(seed.sector)) {
-    action = 'Avoid';
-  } else if (isHeld && (excessiveSingle || excessiveSector) && overallRisk >= 58) {
-    action = 'Trim';
-  } else if (isHeld) {
-    action = composite >= 57 ? 'Hold' : 'Trim';
-  } else if (dataset.user.avoidEarningsRisk && seed.metrics.earningsDays < 14) {
-    action = 'Reassess after earnings';
-  } else if (businessQuality >= 72 && entryQuality < 54) {
-    action = 'Watch only';
-  } else if (portfolioFit.score < 42 && opportunity.score >= 65) {
-    action = 'Not suitable for current portfolio';
-  } else if (overallRisk >= 74 && expectedReturns[2].expected > 0.16) {
-    action = 'High-upside / high-risk only';
-  } else if (
-    composite >= 70 &&
-    businessQuality >= 62 &&
-    entryQuality >= 58 &&
-    timing.score >= 60 &&
-    overallRisk <= 58 &&
-    confidence >= 64
+  if (
+    !isHeld &&
+    seed.metrics.earningsDays > 0 &&
+    seed.metrics.earningsDays <= 7 &&
+    ['Buy now', 'Buy partial', 'Accumulate slowly'].includes(action)
   ) {
-    action = 'Buy now';
-  } else if (composite >= 63 && businessQuality >= 58 && entryQuality >= 54 && timing.score >= 55 && overallRisk <= 68) {
-    action = 'Buy partial';
-  } else if (opportunity.score >= 64 && composite >= 55) {
-    action = 'Accumulate slowly';
-  } else if (opportunity.score >= 54 || portfolioFit.score >= 58) {
-    action = 'Watch only';
-  } else {
-    action = 'Avoid';
+    action = 'Reassess after earnings';
+  }
+
+  action = applyActionHysteresis({
+    action,
+    previousAction,
+    compositeDelta,
+    riskDelta,
+    hardLocked:
+      dataset.user.excludedSectors.includes(seed.sector) ||
+      (dataset.user.avoidEarningsRisk && seed.metrics.earningsDays < 14) ||
+      (isHeld && (excessiveSingle || excessiveSector)),
+  });
+
+  const currentConfidenceBand = confidenceBand(confidence, dataQuality.score, overallRisk);
+
+  if (!isHeld && currentConfidenceBand === 'Low confidence') {
+    action = downgradeBuyAction(downgradeBuyAction(action));
+  } else if (!isHeld && currentConfidenceBand === 'Medium confidence') {
+    action = downgradeBuyAction(action);
   }
 
   const maxWeight = round(
@@ -988,6 +1954,8 @@ function scoreSecurity(
     3,
   );
 
+  const isExitAction = ['Trim', 'Sell', 'Rotate', 'De-risk', 'Take profit'].includes(action);
+
   const actionBaseWeight =
     action === 'Buy now'
       ? 0.07
@@ -997,25 +1965,41 @@ function scoreSecurity(
           ? 0.032
           : action === 'High-upside / high-risk only'
             ? 0.018
-            : action === 'Trim'
-              ? Math.max(dataset.user.maxSinglePositionWeight * risk.sizeCapMultiplier, 0.06)
+            : action === 'Take profit'
+              ? Math.max(currentWeight * 0.45, 0.03)
+              : action === 'Trim' || action === 'Rotate' || action === 'De-risk'
+                ? Math.max(dataset.user.maxSinglePositionWeight * risk.sizeCapMultiplier, 0.04)
               : 0;
 
   const suggestedWeight = round(
-    clamp(
-      Math.min(actionBaseWeight * (0.8 + confidence / 200), maxWeight),
-      0,
-      isHeld ? currentWeight : maxWeight,
-    ),
+    action === 'Sell'
+      ? 0
+      : clamp(
+          Math.min(actionBaseWeight * (0.8 + confidence / 200), maxWeight),
+          0,
+          isHeld ? currentWeight : maxWeight,
+        ),
     3,
   );
 
   const suggestedDollars = round(
-    isHeld && action === 'Trim'
+    isHeld && isExitAction
       ? Math.max((currentWeight - suggestedWeight) * portfolioContext.portfolioValue, 0)
       : suggestedWeight * portfolioContext.portfolioValue,
     0,
   );
+  const suggestedWeightRange =
+    action === 'Sell'
+      ? ([0, 0] as [number, number])
+      : suggestedRangeMidpoint(
+          suggestedWeight,
+          risk.expectedDownside,
+          isHeld ? currentWeight : maxWeight,
+        );
+  const suggestedDollarRange = [
+    round(suggestedWeightRange[0] * portfolioContext.portfolioValue, 0),
+    round(suggestedWeightRange[1] * portfolioContext.portfolioValue, 0),
+  ] as [number, number];
 
   const entryStyle =
     action === 'Buy now' && overallRisk < 52
@@ -1026,19 +2010,27 @@ function scoreSecurity(
           ? 'Three tranches'
           : action === 'Reassess after earnings'
             ? 'Wait for event'
-            : isHeld && action === 'Trim'
+            : isHeld && (action === 'Trim' || action === 'De-risk')
               ? 'Reduce over 2 sessions'
+              : isHeld && action === 'Take profit'
+                ? 'Scale out in tranches'
+                : isHeld && action === 'Rotate'
+                  ? 'Swap over 2 sessions'
+                  : isHeld && action === 'Sell'
+                    ? 'Exit over 1-2 sessions'
               : 'No trade';
 
   const allocation: AllocationSuggestion = {
     suggestedWeight,
     suggestedDollars,
+    suggestedWeightRange,
+    suggestedDollarRange,
     maxWeight,
     entryStyle,
     reserveAfterTrade: round(
       Math.max(
         dataset.user.targetCashReserve,
-        dataset.user.investableCash - (isHeld && action === 'Trim' ? 0 : suggestedDollars),
+        dataset.user.investableCash - (isHeld && isExitAction ? 0 : suggestedDollars),
       ),
       0,
     ),
@@ -1046,7 +2038,7 @@ function scoreSecurity(
       action === 'Trim'
         ? 'Position exceeds the current concentration or risk budget and should be reduced toward a compliant size.'
         : action === 'Buy now' || action === 'Buy partial' || action === 'Accumulate slowly'
-          ? 'Sizing is capped by portfolio constraints, sector room, and the stock’s risk bucket rather than by upside alone.'
+          ? 'Sizing is capped by portfolio constraints, sector room, and the stock\'s risk bucket rather than by upside alone.'
           : 'No capital is allocated because either fit, timing, or risk discipline is not strong enough.',
   };
 
@@ -1088,12 +2080,121 @@ function scoreSecurity(
     .sort((left, right) => right.contribution - left.contribution)
     .slice(0, 4);
 
+  const currentThesisHealth = thesisHealth({
+    action,
+    businessQuality,
+    compositeDelta,
+    riskDelta,
+    downsideDelta,
+  });
+  const thesis = thesisSummaryForScorecard(
+    seed.symbol,
+    driverPool,
+    penaltyPool,
+    thesisHealthScore(currentThesisHealth, businessQuality, downsideDelta),
+  );
+
+  let sellDiscipline: SellDiscipline | undefined;
+  if (isHeld && action === 'Trim') {
+    if (composite <= 48 && businessQuality < 52) {
+      sellDiscipline = 'Thesis broken';
+    } else if (excessiveSingle || excessiveSector) {
+      sellDiscipline = 'Portfolio concentration issue';
+    } else if (valuationRisk >= 78 && expectedReturns[2].base <= 0.06) {
+      sellDiscipline = 'Valuation too stretched';
+    } else if (riskDelta >= 6 || overallRisk >= 68) {
+      sellDiscipline = 'Risk increased too much';
+    } else if (dataset.user.avoidEarningsRisk && seed.metrics.earningsDays < 10 && overallRisk >= 58) {
+      sellDiscipline = 'Event risk no longer worth it';
+    } else {
+      sellDiscipline = 'Upside mostly realized';
+    }
+  }
+
+  const roleLabel =
+    isExitAction
+      ? 'Reduce exposure'
+      : action === 'Hold'
+        ? currentWeight >= dataset.user.maxSinglePositionWeight * 0.75
+          ? 'Core position'
+          : 'Supporting position'
+        : action === 'High-upside / high-risk only'
+          ? 'Tactical satellite'
+          : portfolioFit.score >= 70
+            ? 'Diversifier'
+            : businessQuality >= 72
+              ? 'Core compounder'
+              : 'Selective growth sleeve';
+
+  const decision: DecisionFrame = {
+    why:
+      isExitAction
+        ? `The position no longer fits cleanly because ${sellDiscipline?.toLowerCase() ?? 'risk and concentration have worsened'}.`
+        : `${driverPool[0]?.label ?? 'Composite quality'} is the main reason the system lands on ${action.toLowerCase()}.`,
+    mainRisk:
+      isExitAction
+        ? penaltyPool[0]?.narrative ?? 'Risk or concentration has increased enough to justify reducing exposure.'
+        : penaltyPool[0]?.narrative ?? 'No single penalty dominates, but risk control still matters.',
+    suggestedRole:
+      action === 'Avoid' || action === 'Not suitable for current portfolio'
+        ? 'No portfolio role right now'
+        : `${roleLabel}${!isHeld && suggestedWeight > 0 ? ` at up to ${round(suggestedWeight * 100, 1)}%` : ''}`,
+    sizingDiscipline:
+      action === 'Avoid' || action === 'Watch only' || action === 'Reassess after earnings'
+        ? `${currentConfidenceBand}. Keep capital uncommitted until fit, timing, and confidence improve.`
+        : action === 'Sell'
+          ? `${currentConfidenceBand}. Exit the position; the model no longer sees a compensated reason to hold it.`
+          : action === 'Rotate'
+            ? `${currentConfidenceBand}. Rotate gradually into a stronger candidate or hold cash if the replacement does not clear execution checks.`
+            : action === 'De-risk' || action === 'Trim'
+              ? `${currentConfidenceBand}. Reduce toward ${round(suggestedWeightRange[0] * 100, 1)}-${round(
+                  suggestedWeightRange[1] * 100,
+                  1,
+                )}% or hold cash if no cleaner replacement is available.`
+              : action === 'Take profit'
+                ? `${currentConfidenceBand}. Harvest gains in stages; the model sees less reward cushion than before.`
+          : `${currentConfidenceBand}. Suggested size range is ${round(
+              suggestedWeightRange[0] * 100,
+              1,
+            )}-${round(suggestedWeightRange[1] * 100, 1)}% ($${Math.round(
+              suggestedDollarRange[0],
+            ).toLocaleString('en-US')}-$${Math.round(suggestedDollarRange[1]).toLocaleString(
+              'en-US',
+            )}) via ${entryStyle.toLowerCase()}.`,
+  };
+
+  const recommendationChange: RecommendationChange = {
+    previousComposite: round(recommendationPreviousComposite),
+    compositeDelta,
+    previousRisk: round(recommendationPreviousRisk),
+    riskDelta,
+    previousDownside: round(recommendationPreviousDownside * 100, 1),
+    downsideDelta: round(downsideDelta * 100, 1),
+    previousAction,
+    actionChanged: previousAction !== action,
+    summary:
+      previousAction !== action
+        ? `Action moved from ${previousAction} to ${action} since the prior snapshot.`
+        : `Action stays at ${action}; the latest change was not large enough to justify a new label.`,
+    factorMoves: [
+      `Composite ${compositeDelta >= 0 ? 'improved' : 'fell'} by ${Math.abs(compositeDelta)} point${
+        Math.abs(compositeDelta) === 1 ? '' : 's'
+      } versus the prior snapshot.`,
+      `Risk ${riskDelta >= 0 ? 'rose' : 'fell'} by ${Math.abs(riskDelta)} point${
+        Math.abs(riskDelta) === 1 ? '' : 's'
+      }; expected downside is now ${round(risk.expectedDownside * 100, 1)}%.`,
+      `Current key driver is ${driverPool[0]?.label?.toLowerCase() ?? 'score balance'} while the main blocker is ${
+        penaltyPool[0]?.label?.toLowerCase() ?? 'risk discipline'
+      }.`,
+    ],
+  };
+
   const explanation: Explainability = {
-    summary: `${seed.symbol} lands at ${round(composite)} composite with ${action}. Opportunity is ${round(
+    summary: `${seed.symbol} lands at ${round(composite)} composite with ${action}. ${decision.why} Opportunity is ${round(
       opportunity.score,
     )}, fragility is ${round(fragility.score)}, portfolio fit is ${round(
       portfolioFit.score,
-    )}, business quality is ${businessQuality}, entry quality is ${entryQuality}, data quality is ${dataQuality.score}, and confidence is ${confidence}.`,
+    )}, business quality is ${businessQuality}, entry quality is ${entryQuality}, data quality is ${dataQuality.score}, reliability is ${dataReliabilityScore}, macro fit is ${macroAlignment}, and confidence is ${confidence}.`,
     topDrivers: driverPool,
     topPenalties: penaltyPool,
     riskNotes: [
@@ -1121,6 +2222,7 @@ function scoreSecurity(
         ? 'Liquidity is strong; confidence is not being penalized materially for execution risk.'
         : 'Liquidity is lower than ideal, so confidence and sizing are capped.',
       ...dataQuality.notes,
+      ...signalAudit.notes,
     ],
     changeTriggers: [
       'A lower fragility score or wider sector room would improve the recommendation.',
@@ -1137,15 +2239,154 @@ function scoreSecurity(
     timing,
     portfolioFit,
     confidence,
+    confidenceBand: currentConfidenceBand,
     dataQualityScore: dataQuality.score,
+    dataReliabilityScore,
+    macroAlignmentScore: macroAlignment,
     composite: round(composite),
     risk,
     expectedReturns,
     action,
+    thesisHealth: currentThesisHealth,
+    thesis,
+    sellDiscipline,
+    replacementIdea: undefined,
+    decision,
+    freshness,
+    recommendationChange,
+    signalAudit,
     fitImpact,
     allocation,
     explanation,
   } satisfies ScoreCard;
+}
+
+function replacementCandidateForHolding(
+  dataset: MockDataset,
+  current: ScoreCard,
+  scorecards: ScoreCard[],
+) {
+  const heldSymbols = new Set(dataset.holdings.map((holding) => holding.symbol));
+
+  const candidates = scorecards
+    .filter(
+      (candidate) =>
+        candidate.symbol !== current.symbol &&
+        !heldSymbols.has(candidate.symbol) &&
+        ['Buy now', 'Buy partial', 'Accumulate slowly'].includes(candidate.action) &&
+        candidate.confidenceBand !== 'Low confidence' &&
+        candidate.dataQualityScore >= 58,
+    )
+    .sort((left, right) => {
+      const leftEdge =
+        left.composite + left.portfolioFit.score * 0.32 + left.expectedReturns[2].base * 100 - left.risk.overall * 0.22;
+      const rightEdge =
+        right.composite + right.portfolioFit.score * 0.32 + right.expectedReturns[2].base * 100 - right.risk.overall * 0.22;
+      return rightEdge - leftEdge;
+    });
+
+  const winner = candidates[0];
+
+  if (!winner) {
+    return null;
+  }
+
+  const improvement =
+    winner.composite -
+    current.composite +
+    (winner.portfolioFit.score - current.portfolioFit.score) * 0.4 +
+    (winner.expectedReturns[2].base - current.expectedReturns[2].base) * 100 * 0.6;
+
+  if (improvement < 8) {
+    return null;
+  }
+
+  return winner;
+}
+
+function finalizeHeldRecommendationActions(
+  dataset: MockDataset,
+  scorecards: ScoreCard[],
+) {
+  const heldSymbols = new Set(dataset.holdings.map((holding) => holding.symbol));
+
+  return scorecards.map((scorecard) => {
+    if (!heldSymbols.has(scorecard.symbol) || scorecard.action !== 'Trim') {
+      return scorecard;
+    }
+
+    const replacementCandidate = replacementCandidateForHolding(dataset, scorecard, scorecards);
+    const replacementIdea = replacementCandidate
+      ? `Rotate toward ${replacementCandidate.symbol}; it offers better fit and expected return for the current portfolio.`
+      : undefined;
+
+    let nextAction: ActionLabel = scorecard.action;
+    if (replacementCandidate) {
+      nextAction = 'Rotate';
+    } else if (scorecard.sellDiscipline === 'Thesis broken') {
+      nextAction = 'Sell';
+    } else if (scorecard.sellDiscipline === 'Risk increased too much') {
+      nextAction = 'De-risk';
+    } else if (
+      scorecard.sellDiscipline === 'Valuation too stretched' ||
+      scorecard.sellDiscipline === 'Upside mostly realized'
+    ) {
+      nextAction = 'Take profit';
+    } else if (scorecard.sellDiscipline === 'Event risk no longer worth it') {
+      nextAction = 'Reassess after earnings';
+    }
+
+    const nextDecision: DecisionFrame = {
+      ...scorecard.decision,
+      why:
+        nextAction === 'Rotate'
+          ? replacementIdea ?? scorecard.decision.why
+          : scorecard.sellDiscipline
+            ? `${scorecard.sellDiscipline} is the dominant reason the system no longer wants full exposure.`
+            : scorecard.decision.why,
+      suggestedRole:
+        nextAction === 'Sell'
+          ? 'Exit the position'
+          : nextAction === 'Rotate'
+            ? 'Replace with a stronger candidate'
+            : nextAction === 'De-risk'
+              ? 'Reduce to a lower-risk weight'
+              : nextAction === 'Take profit'
+                ? 'Harvest gains and free cash'
+                : scorecard.decision.suggestedRole,
+      sizingDiscipline:
+        nextAction === 'Sell'
+          ? 'Low confidence. Exit rather than carrying thesis risk forward.'
+          : nextAction === 'Rotate'
+            ? 'Shift capital gradually into the replacement name unless cash is the cleaner choice.'
+            : nextAction === 'De-risk'
+              ? 'Cut size toward the lower end of the suggested range until portfolio risk normalizes.'
+              : nextAction === 'Take profit'
+                ? 'Lock in part of the gain; future upside no longer justifies full size.'
+                : scorecard.decision.sizingDiscipline,
+    };
+
+    const nextChange = {
+      ...scorecard.recommendationChange,
+      actionChanged: scorecard.recommendationChange.previousAction !== nextAction,
+      summary:
+        scorecard.recommendationChange.previousAction !== nextAction
+          ? `Action moved from ${scorecard.recommendationChange.previousAction} to ${nextAction} since the prior snapshot.`
+          : scorecard.recommendationChange.summary,
+    };
+
+    return {
+      ...scorecard,
+      action: nextAction,
+      replacementIdea,
+      decision: nextDecision,
+      recommendationChange: nextChange,
+      explanation: {
+        ...scorecard.explanation,
+        summary: `${scorecard.symbol} lands at ${round(scorecard.composite)} composite with ${nextAction}. ${nextDecision.why}`,
+      },
+    };
+  });
 }
 
 function buildHoldingAnalysis(
@@ -1159,6 +2400,14 @@ function buildHoldingAnalysis(
     if (!scorecard) {
       throw new Error(`Missing scorecard for holding ${entry.security.symbol}`);
     }
+
+    const replacementCandidate = replacementCandidateForHolding(dataset, scorecard, scorecards);
+    const replacementIdea =
+      ['Trim', 'Rotate', 'Sell', 'De-risk', 'Take profit'].includes(scorecard.action)
+        ? replacementCandidate
+          ? `${scorecard.action} and consider ${replacementCandidate.symbol} instead; it offers better fit and expected return for the current portfolio.`
+          : `${scorecard.action} and let cash absorb the reduction until a cleaner replacement is available.`
+        : undefined;
 
     return {
       symbol: entry.security.symbol,
@@ -1180,6 +2429,12 @@ function buildHoldingAnalysis(
       concentrationFlag:
         safeDivide(entry.marketValue, portfolioContext.portfolioValue) >
         dataset.user.maxSinglePositionWeight,
+      thesisHealth: scorecard.thesisHealth,
+      confidenceBand: scorecard.confidenceBand,
+      sellDiscipline:
+        scorecard.sellDiscipline ??
+        (replacementIdea && scorecard.action === 'Rotate' ? 'Better replacement available' : undefined),
+      replacementIdea: scorecard.replacementIdea ?? replacementIdea,
     } satisfies HoldingAnalysis;
   });
 }
@@ -1211,7 +2466,19 @@ function buildAlerts(
       security.scoreHistory[security.scoreHistory.length - 1] ?? scorecard.composite;
     const compositeDelta = round(scorecard.composite - previousComposite, 1);
 
-    if (Math.abs(compositeDelta) >= 5) {
+    if (scorecard.recommendationChange.actionChanged) {
+      alerts.push({
+        id: `${scorecard.symbol}-action`,
+        symbol: scorecard.symbol,
+        severity:
+          actionRank(scorecard.action) < actionRank(scorecard.recommendationChange.previousAction)
+            ? 'medium'
+            : 'high',
+        kind: 'Action change',
+        message: scorecard.recommendationChange.summary,
+        route: `/stocks/${scorecard.symbol}`,
+      });
+    } else if (Math.abs(compositeDelta) >= 5) {
       alerts.push({
         id: `${scorecard.symbol}-score`,
         symbol: scorecard.symbol,
@@ -1225,13 +2492,27 @@ function buildAlerts(
     }
 
     const riskDelta = round(scorecard.risk.overall - security.previousRisk, 1);
-    if (Math.abs(riskDelta) >= 6) {
+    if (!scorecard.recommendationChange.actionChanged && Math.abs(riskDelta) >= 6) {
       alerts.push({
         id: `${scorecard.symbol}-risk`,
         symbol: scorecard.symbol,
         severity: riskDelta > 0 ? 'high' : 'low',
         kind: 'Risk change',
         message: `${scorecard.symbol} risk changed by ${riskDelta} points.`,
+        route: `/stocks/${scorecard.symbol}`,
+      });
+    }
+
+    if (
+      (scorecard.dataQualityScore < 55 || scorecard.freshness.fundamentalsStatus === 'stale') &&
+      (dataset.holdings.some((holding) => holding.symbol === scorecard.symbol) || actionRank(scorecard.action) <= 3)
+    ) {
+      alerts.push({
+        id: `${scorecard.symbol}-freshness`,
+        symbol: scorecard.symbol,
+        severity: 'medium',
+        kind: 'Data freshness',
+        message: `${scorecard.symbol} relies on ${scorecard.freshness.fundamentalsStatus} fundamentals or thin coverage, so conviction is capped.`,
         route: `/stocks/${scorecard.symbol}`,
       });
     }
@@ -1250,6 +2531,39 @@ function buildAlerts(
         route: `/stocks/${scorecard.symbol}`,
       });
     }
+
+    if (scorecard.risk.market >= 72 || security.metrics.crashFrequency >= 0.14 || security.metrics.tailLoss >= 0.12) {
+      alerts.push({
+        id: `${scorecard.symbol}-tail`,
+        symbol: scorecard.symbol,
+        severity: 'high',
+        kind: 'Tail risk',
+        message: `${scorecard.symbol} has elevated left-tail behavior or volatility clustering that can overwhelm a normal position size.`,
+        route: `/stocks/${scorecard.symbol}`,
+      });
+    }
+
+    if (scorecard.risk.business >= 70) {
+      alerts.push({
+        id: `${scorecard.symbol}-balance-sheet`,
+        symbol: scorecard.symbol,
+        severity: 'high',
+        kind: 'Balance-sheet stress',
+        message: `${scorecard.symbol} is carrying enough business or financing fragility that a small thesis break could turn into a larger drawdown.`,
+        route: `/stocks/${scorecard.symbol}`,
+      });
+    }
+
+    if (scorecard.risk.event >= 70) {
+      alerts.push({
+        id: `${scorecard.symbol}-binary`,
+        symbol: scorecard.symbol,
+        severity: 'medium',
+        kind: 'Binary event risk',
+        message: `${scorecard.symbol} is unusually exposed to event-driven moves right now.`,
+        route: `/stocks/${scorecard.symbol}`,
+      });
+    }
   });
 
   portfolioContext.sectorExposure.forEach((entry) => {
@@ -1264,7 +2578,18 @@ function buildAlerts(
     }
   });
 
-  return alerts.slice(0, 12);
+  const severityRank = { high: 0, medium: 1, low: 2 } satisfies Record<AlertItem['severity'], number>;
+
+  return alerts
+    .sort((left, right) => {
+      const severityGap = severityRank[left.severity] - severityRank[right.severity];
+      if (severityGap !== 0) {
+        return severityGap;
+      }
+
+      return left.kind.localeCompare(right.kind);
+    })
+    .slice(0, 12);
 }
 
 function buildWatchlistMovers(dataset: MockDataset) {
@@ -1289,6 +2614,391 @@ function buildWatchlistMovers(dataset: MockDataset) {
       })
       .filter((item): item is NonNullable<typeof item> => item !== null);
   });
+}
+
+function buildWatchlistSignals(dataset: MockDataset, scorecards: ScoreCard[]) {
+  const scorecardBySymbol = new Map(scorecards.map((card) => [card.symbol, card]));
+  const securityBySymbol = new Map(dataset.securities.map((security) => [security.symbol, security]));
+  const heldSymbols = new Set(dataset.holdings.map((holding) => holding.symbol));
+  const signals: WatchlistSignal[] = [];
+
+  dataset.watchlists.forEach((watchlist) => {
+    watchlist.symbols.forEach((symbol) => {
+      const scorecard = scorecardBySymbol.get(symbol);
+      const security = securityBySymbol.get(symbol);
+
+      if (!scorecard || !security) {
+        return;
+      }
+
+      if (
+        !heldSymbols.has(symbol) &&
+        ['Buy now', 'Buy partial', 'Accumulate slowly'].includes(scorecard.action) &&
+        scorecard.composite >= 60
+      ) {
+        signals.push({
+          id: `${watchlist.id}-${symbol}-opportunity`,
+          watchlist: watchlist.name,
+          symbol,
+          kind: 'Opportunity appearing',
+          message: `${symbol} is starting to look more attractive for this portfolio.`,
+          severity: scorecard.action === 'Buy now' ? 'high' : 'medium',
+          route: `/stocks/${symbol}`,
+        });
+      }
+
+      if (
+        ['Avoid', 'Sell', 'Rotate', 'De-risk', 'Take profit'].includes(scorecard.action) ||
+        scorecard.risk.overall >= 68 ||
+        scorecard.thesisHealth === 'Broken'
+      ) {
+        signals.push({
+          id: `${watchlist.id}-${symbol}-risk`,
+          watchlist: watchlist.name,
+          symbol,
+          kind: 'Risk increasing',
+          message: `${symbol} is carrying more risk or a weaker case than before.`,
+          severity: scorecard.risk.overall >= 74 || scorecard.thesisHealth === 'Broken' ? 'high' : 'medium',
+          route: `/stocks/${symbol}`,
+        });
+      }
+
+      if (security.metrics.earningsDays > 0 && security.metrics.earningsDays <= 14) {
+        signals.push({
+          id: `${watchlist.id}-${symbol}-earnings`,
+          watchlist: watchlist.name,
+          symbol,
+          kind: 'Earnings approaching',
+          message: `${symbol} reports earnings in about ${security.metrics.earningsDays} day${
+            security.metrics.earningsDays === 1 ? '' : 's'
+          }.`,
+          severity: security.metrics.earningsDays <= 7 ? 'high' : 'medium',
+          route: `/stocks/${symbol}`,
+        });
+      }
+    });
+  });
+
+  const severityRank = { high: 0, medium: 1, low: 2 } satisfies Record<WatchlistSignal['severity'], number>;
+  return signals
+    .sort((left, right) => {
+      const severityGap = severityRank[left.severity] - severityRank[right.severity];
+      if (severityGap !== 0) {
+        return severityGap;
+      }
+
+      return left.symbol.localeCompare(right.symbol);
+    })
+    .slice(0, 16);
+}
+
+function buildPortfolioFragility(
+  dataset: MockDataset,
+  holdings: HoldingAnalysis[],
+  scorecards: ScoreCard[],
+  portfolioContext: ReturnType<typeof buildPortfolioContext>,
+  concentrationIssues: string[],
+): PortfolioFragilityAnalysis {
+  const scorecardBySymbol = new Map(scorecards.map((card) => [card.symbol, card]));
+  const securityBySymbol = new Map(dataset.securities.map((security) => [security.symbol, security]));
+  const themeWeights = new Map<string, number>();
+
+  holdings.forEach((holding) => {
+    const security = securityBySymbol.get(holding.symbol);
+
+    if (!security) {
+      return;
+    }
+
+    const themes = themeExposureLabels(security);
+    if (themes.length === 0) {
+      return;
+    }
+
+    const perThemeWeight = holding.weight / themes.length;
+    themes.forEach((theme) => {
+      themeWeights.set(theme, round((themeWeights.get(theme) ?? 0) + perThemeWeight, 1));
+    });
+  });
+
+  const hiddenExposureThemes = [...themeWeights.entries()]
+    .filter(([, weight]) => weight >= 18)
+    .sort((left, right) => right[1] - left[1])
+    .map(([theme, weight]) => `${theme} (${round(weight, 1)}%)`);
+
+  const largestHoldingWeight = Math.max(0, ...holdings.map((holding) => holding.weight));
+  const largestSectorWeight = Math.max(0, ...portfolioContext.sectorExposure.map((entry) => entry.weight));
+  const averageClusterOverlap =
+    holdings.length > 0
+      ? average(
+          holdings.map((holding) => scorecardBySymbol.get(holding.symbol)?.fitImpact.clusterOverlap ?? 0),
+        )
+      : 0;
+  const averageHoldingRisk =
+    holdings.length > 0
+      ? average(holdings.map((holding) => scorecardBySymbol.get(holding.symbol)?.risk.overall ?? 0))
+      : 0;
+
+  const concentrationFlags = [...concentrationIssues];
+  if (largestHoldingWeight >= 18) {
+    const name = holdings.find((holding) => holding.weight === largestHoldingWeight)?.symbol;
+    if (name) {
+      concentrationFlags.push(`${name} is taking up a large share of the portfolio.`);
+    }
+  }
+  if (largestSectorWeight >= 28) {
+    const sector = portfolioContext.sectorExposure.find((entry) => entry.weight === largestSectorWeight)?.sector;
+    if (sector) {
+      concentrationFlags.push(`${sector} is doing too much of the work in this portfolio.`);
+    }
+  }
+  hiddenExposureThemes.slice(0, 2).forEach((theme) => {
+    concentrationFlags.push(`Hidden theme overlap is building around ${theme.toLowerCase()}.`);
+  });
+
+  return {
+    fragilityScore: round(
+      clamp(
+        average([
+          largestHoldingWeight * 3.2,
+          largestSectorWeight * 2,
+          averageClusterOverlap,
+          averageHoldingRisk,
+        ]),
+        0,
+        100,
+      ),
+    ),
+    concentrationFlags: concentrationFlags.slice(0, 6),
+    hiddenExposureThemes,
+  };
+}
+
+type StressScenarioDefinition = {
+  scenario: string;
+  description: string;
+  shocks: Record<string, number>;
+};
+
+const stressScenarioDefinitions: StressScenarioDefinition[] = [
+  {
+    scenario: 'AI spending slowdown',
+    description: 'A slowdown in AI infrastructure spending hits semis, networking, and related software harder than the rest of the market.',
+    shocks: {
+      'AI infrastructure': -0.18,
+      'High-growth tech': -0.12,
+      Technology: -0.09,
+      'Economic cycle risk': -0.06,
+    },
+  },
+  {
+    scenario: 'Interest rates rising',
+    description: 'Higher rates pressure long-duration growth and rate-sensitive groups.',
+    shocks: {
+      'Interest-rate sensitive': -0.14,
+      'High-growth tech': -0.1,
+      Technology: -0.08,
+      'Defensive shelter': -0.03,
+    },
+  },
+  {
+    scenario: 'Oil shock',
+    description: 'Energy prices spike, hurting transport, consumers, and rate-sensitive areas while helping energy exposure.',
+    shocks: {
+      'Energy prices': 0.08,
+      'Consumer spending': -0.1,
+      Industrials: -0.08,
+      Energy: 0.08,
+    },
+  },
+  {
+    scenario: 'Tech correction',
+    description: 'Large-cap tech and crowded growth unwind quickly across related names.',
+    shocks: {
+      'High-growth tech': -0.16,
+      'AI infrastructure': -0.2,
+      Technology: -0.14,
+      'Defensive shelter': -0.04,
+    },
+  },
+];
+
+function securityScenarioShock(security: SecuritySeed, shocks: Record<string, number>) {
+  let shock = shocks[security.sector] ?? 0;
+  themeExposureLabels(security).forEach((theme) => {
+    shock += shocks[theme] ?? 0;
+  });
+
+  return clamp(shock, -0.28, 0.12);
+}
+
+function buildStressTests(
+  dataset: MockDataset,
+  holdings: HoldingAnalysis[],
+): StressScenarioResult[] {
+  const securityBySymbol = new Map(dataset.securities.map((security) => [security.symbol, security]));
+  const portfolioValue = Math.max(sum(holdings.map((holding) => holding.marketValue)), 1);
+
+  return stressScenarioDefinitions.map((definition) => {
+    const impacts = holdings
+      .map((holding) => {
+        const security = securityBySymbol.get(holding.symbol);
+        if (!security) {
+          return { symbol: holding.symbol, impact: 0 };
+        }
+
+        const shock = securityScenarioShock(security, definition.shocks);
+        return {
+          symbol: holding.symbol,
+          impact: round(safeDivide(holding.marketValue * shock, portfolioValue) * 100, 1),
+        };
+      })
+      .sort((left, right) => left.impact - right.impact);
+
+    const drawdown = round(
+      impacts.reduce((total, item) => total + Math.min(item.impact, 0), 0),
+      1,
+    );
+
+    return {
+      scenario: definition.scenario,
+      description: definition.description,
+      portfolioDrawdown: drawdown,
+      topRiskContributors: impacts.filter((item) => item.impact < 0).slice(0, 3),
+    };
+  });
+}
+
+function buildOpportunityRadar(dataset: MockDataset, scorecards: ScoreCard[], regime: RegimeSnapshot) {
+  const heldSymbols = new Set(dataset.holdings.map((holding) => holding.symbol));
+  const securityBySymbol = new Map(dataset.securities.map((security) => [security.symbol, security]));
+  const candidates: OpportunityRadarItem[] = [];
+
+  scorecards.forEach((scorecard) => {
+    if (heldSymbols.has(scorecard.symbol)) {
+      return;
+    }
+
+    const security = securityBySymbol.get(scorecard.symbol);
+    if (!security) {
+      return;
+    }
+
+    const setups: Array<{ setup: string; score: number; explanation: string }> = [];
+
+    if (scorecard.businessQuality >= 70 && security.metrics.ret1m < 0 && scorecard.timing.score >= 55) {
+      setups.push({
+        setup: 'Strong business, recent pullback',
+        score: round(average([scorecard.businessQuality, scorecard.timing.score, scorecard.portfolioFit.score])),
+        explanation: 'The company still looks solid, but the price has pulled back enough to be worth another look.',
+      });
+    }
+
+    if (security.metrics.momentumAcceleration >= 4 && scorecard.timing.score >= 60) {
+      setups.push({
+        setup: 'Momentum picking up',
+        score: round(average([scorecard.timing.score, scorecard.opportunity.score, scorecard.confidence])),
+        explanation: 'Price strength is building without a major breakdown in quality or fit.',
+      });
+    }
+
+    if (scorecard.opportunity.score >= 65 && scorecard.entryQuality >= 60 && scorecard.risk.overall <= 58) {
+      setups.push({
+        setup: 'Price looks more attractive than usual',
+        score: round(average([scorecard.opportunity.score, scorecard.entryQuality, 100 - scorecard.risk.overall])),
+        explanation: 'The reward looks better than the current risk for this stock.',
+      });
+    }
+
+    if (regime.environment.includes('Risk-on') && scorecard.macroAlignmentScore >= 60 && scorecard.portfolioFit.score >= 58) {
+      setups.push({
+        setup: 'Fits the current market mood',
+        score: round(average([scorecard.macroAlignmentScore, scorecard.portfolioFit.score, scorecard.confidence])),
+        explanation: 'The current market environment is lining up well with this kind of setup.',
+      });
+    }
+
+    const bestSetup = setups.sort((left, right) => right.score - left.score)[0];
+
+    if (bestSetup) {
+      candidates.push({
+        symbol: scorecard.symbol,
+        setup: bestSetup.setup,
+        score: bestSetup.score,
+        explanation: bestSetup.explanation,
+      });
+    }
+  });
+
+  return candidates.sort((left, right) => right.score - left.score).slice(0, 8);
+}
+
+function buildRiskBudget(
+  dataset: MockDataset,
+  holdings: HoldingAnalysis[],
+  scorecards: ScoreCard[],
+): RiskBudgetSummary {
+  const scorecardBySymbol = new Map(scorecards.map((card) => [card.symbol, card]));
+  const riskByHolding = holdings
+    .map((holding) => ({
+      symbol: holding.symbol,
+      risk: round(scorecardBySymbol.get(holding.symbol)?.risk.overall ?? 0, 1),
+    }))
+    .sort((left, right) => right.risk - left.risk);
+  const riskBudgetTotal = round(clamp(dataset.user.maxPortfolioDrawdownTolerance * 350, 35, 100), 1);
+  const riskUsed = round(sum(holdings.map((holding) => holding.riskContribution)), 1);
+
+  return {
+    riskBudgetTotal,
+    riskUsed,
+    riskByHolding,
+    warning:
+      riskUsed > riskBudgetTotal
+        ? 'Portfolio risk is above your current budget.'
+        : riskUsed > riskBudgetTotal * 0.85
+          ? 'Portfolio risk is getting close to the limit.'
+          : undefined,
+  };
+}
+
+function buildPortfolioIQ(
+  holdings: HoldingAnalysis[],
+  scorecards: ScoreCard[],
+  diversificationScore: number,
+  averageRisk: number,
+): PortfolioIQSummary {
+  const scorecardBySymbol = new Map(scorecards.map((card) => [card.symbol, card]));
+  const averageBusinessQuality =
+    holdings.length > 0
+      ? average(holdings.map((holding) => scorecardBySymbol.get(holding.symbol)?.businessQuality ?? 0))
+      : 0;
+  const averageValuationRoom =
+    holdings.length > 0
+      ? average(holdings.map((holding) => 100 - (scorecardBySymbol.get(holding.symbol)?.risk.valuation ?? 0)))
+      : 0;
+  const score = round(
+    clamp(
+      average([diversificationScore, 100 - averageRisk, averageBusinessQuality, averageValuationRoom]),
+      0,
+      100,
+    ),
+  );
+
+  return {
+    score,
+    summary:
+      score >= 75
+        ? 'Your portfolio looks balanced and fairly disciplined.'
+        : score >= 60
+          ? 'Your portfolio is in decent shape, but a few areas need work.'
+          : 'Your portfolio is carrying more concentration or risk than ideal.',
+    drivers: [
+      `Spread out score: ${diversificationScore}/100.`,
+      `Average risk load: ${round(averageRisk, 1)}/100.`,
+      `Business quality across holdings: ${round(averageBusinessQuality, 1)}/100.`,
+      `Price discipline across holdings: ${round(averageValuationRoom, 1)}/100.`,
+    ],
+  };
 }
 
 function currentPriorityBoost(priority: PlannerInputs['priority']) {
@@ -1320,6 +3030,7 @@ export function buildDeploymentPlan(
           scorecard.action,
         ) &&
         scorecard.dataQualityScore >= 52 &&
+        scorecard.confidenceBand !== 'Low confidence' &&
         scorecard.portfolioFit.score >= priority.fitFloor &&
         scorecard.risk.overall <= priority.riskCap,
     )
@@ -1327,6 +3038,7 @@ export function buildDeploymentPlan(
 
   const topSetQuality = average(candidatePool.slice(0, 3).map((item) => item.composite));
   const topSetDataQuality = average(candidatePool.slice(0, 3).map((item) => item.dataQualityScore));
+  const topSetConfidence = average(candidatePool.slice(0, 3).map((item) => item.confidence));
   const riskStanceAdjustment =
     inputs.riskTolerance === 'aggressive'
       ? 0.12
@@ -1338,9 +3050,10 @@ export function buildDeploymentPlan(
 
   let deployFraction = clamp(
     0.34 +
-      regime.deploymentTilt * 0.18 +
+      regime.deploymentTilt * 0.24 +
       (topSetQuality - 60) / 120 +
       (topSetDataQuality - 60) / 200 +
+      (topSetConfidence - 62) / 260 +
       riskStanceAdjustment +
       priority.deployAdjustment,
     0.12,
@@ -1359,6 +3072,10 @@ export function buildDeploymentPlan(
     deployFraction -= 0.06;
   }
 
+  if (inputs.deploymentStyle === 'safe-starter') {
+    deployFraction -= 0.16;
+  }
+
   if (inputs.horizonMonths < 12) {
     deployFraction -= 0.08;
   }
@@ -1367,7 +3084,19 @@ export function buildDeploymentPlan(
     deployFraction -= 0.07;
   }
 
-  deployFraction = clamp(deployFraction, 0.1, 0.78);
+  if (topSetConfidence < 62) {
+    deployFraction -= 0.08;
+  }
+
+  if (regime.deploymentTilt < 0) {
+    deployFraction -= 0.06;
+  }
+
+  deployFraction = clamp(
+    deployFraction,
+    inputs.deploymentStyle === 'safe-starter' ? 0.05 : 0.1,
+    inputs.deploymentStyle === 'safe-starter' ? 0.45 : 0.78,
+  );
 
   if (candidatePool.length === 0) {
     deployFraction = 0;
@@ -1416,6 +3145,13 @@ export function buildDeploymentPlan(
         symbol: candidate.symbol,
         dollars,
         weight: round(safeDivide(dollars, portfolioValue) * 100, 1),
+        dollarRange: candidate.allocation.suggestedDollarRange,
+        weightRange: candidate.allocation.suggestedWeightRange
+          ? [
+              round(candidate.allocation.suggestedWeightRange[0] * 100, 1),
+              round(candidate.allocation.suggestedWeightRange[1] * 100, 1),
+            ] as [number, number]
+          : undefined,
         role,
         entryStyle: candidate.allocation.entryStyle,
         rationale: `${candidate.action}. ${candidate.explanation.summary}`,
@@ -1442,6 +3178,7 @@ export function buildDeploymentPlan(
     deployNow,
     holdBack,
     reserveTarget,
+    cashReserveSuggestion: holdBack,
     posture:
       candidatePool.length === 0
         ? 'Wait for better setups'
@@ -1450,12 +3187,37 @@ export function buildDeploymentPlan(
         : deployFraction >= 0.35
           ? 'Measured deployment'
           : 'Capital preservation',
+    expectedReturnEstimate:
+      allocations.length > 0
+        ? round(
+            average(
+              allocations.map((allocation) => {
+                const candidate = candidatePool.find((item) => item.symbol === allocation.symbol);
+                return candidate?.expectedReturns[2].base ?? 0;
+              }),
+            ),
+            3,
+          )
+        : 0,
+    riskEstimate:
+      allocations.length > 0
+        ? round(
+            average(
+              allocations.map((allocation) => {
+                const candidate = candidatePool.find((item) => item.symbol === allocation.symbol);
+                return candidate?.risk.overall ?? 0;
+              }),
+            ),
+            1,
+          )
+        : 0,
     rationale: [
       ...(candidatePool.length === 0 ? ['No stocks currently meet the plan filters for fit, risk, and timing.'] : []),
       `Regime is ${regime.key.toLowerCase()}, so cash deployment is ${regime.deploymentTilt > 0 ? 'allowed' : 'restrained'}.`,
       `Priority mode is ${inputs.priority}; the engine filters for fit floor ${priority.fitFloor} and risk cap ${priority.riskCap}.`,
       `Top opportunity-set quality is ${round(topSetQuality)} composite.`,
       `Top candidate data quality is ${round(topSetDataQuality)} / 100.`,
+      `Top candidate confidence is ${round(topSetConfidence)} / 100.`,
     ],
     allocations,
     avoids,
@@ -1466,11 +3228,15 @@ export function buildCommandCenterModel(dataset: MockDataset): CommandCenterMode
   const regime = inferRegime(dataset);
   const portfolioContext = buildPortfolioContext(dataset);
   const ledgerSummary = buildLedgerSummary(dataset);
-  const scorecards = dataset.securities
-    .map((security) => scoreSecurity(dataset, regime, portfolioContext, security))
-    .sort((left, right) => right.composite - left.composite);
+  const baseScorecards = dataset.securities.map((security) =>
+    scoreSecurity(dataset, regime, portfolioContext, security),
+  );
+  const scorecards = finalizeHeldRecommendationActions(dataset, baseScorecards).sort(
+    (left, right) => right.composite - left.composite,
+  );
   const holdings = buildHoldingAnalysis(dataset, scorecards, portfolioContext);
   const alerts = buildAlerts(dataset, regime, scorecards, portfolioContext);
+  const freshnessHierarchy = buildFreshnessHierarchy(dataset, scorecards);
   const deploymentPlan = buildDeploymentPlan(
     dataset,
     regime,
@@ -1527,6 +3293,24 @@ export function buildCommandCenterModel(dataset: MockDataset): CommandCenterMode
   const diversificationScore = round(
     clamp(diversificationBase - concentrationIssues.length * 18, 0, 100),
   );
+  const averageRisk = round(average(holdings.map((holding) => holding.riskContribution)), 1);
+  const watchlistSignals = buildWatchlistSignals(dataset, scorecards);
+  const portfolioFragility = buildPortfolioFragility(
+    dataset,
+    holdings,
+    scorecards,
+    portfolioContext,
+    concentrationIssues,
+  );
+  const stressTests = buildStressTests(dataset, holdings);
+  const opportunityRadar = buildOpportunityRadar(dataset, scorecards, regime);
+  const riskBudget = buildRiskBudget(dataset, holdings, scorecards);
+  const portfolioIQ = buildPortfolioIQ(
+    holdings,
+    scorecards,
+    diversificationScore,
+    averageRisk,
+  );
 
   return {
     dataset,
@@ -1536,6 +3320,7 @@ export function buildCommandCenterModel(dataset: MockDataset): CommandCenterMode
     ledgerSummary,
     alerts,
     watchlistMovers: buildWatchlistMovers(dataset),
+    watchlistSignals,
     deploymentPlan,
     sectorExposure: portfolioContext.sectorExposure,
     factorExposure: Object.entries(portfolioContext.factorTotals).map(([factor, value]) => ({
@@ -1543,11 +3328,67 @@ export function buildCommandCenterModel(dataset: MockDataset): CommandCenterMode
       value: round(value, 1),
     })),
     riskExposure,
+    portfolioFragility,
+    stressTests,
+    opportunityRadar,
+    riskBudget,
+    portfolioIQ,
     concentrationIssues,
     notableChanges: alerts.slice(0, 5).map((alert) => alert.message),
     portfolioValue: round(portfolioContext.portfolioValue, 0),
     diversificationScore,
-    averageRisk: round(average(holdings.map((holding) => holding.riskContribution)), 1),
+    averageRisk,
+    freshnessHierarchy,
+  };
+}
+
+/**
+ * Builds a run snapshot for Recommendation History / Model Memory.
+ * Store and later compare with forward outcomes to measure calibration, action accuracy, and regime/fit impact.
+ */
+export function buildRecommendationRunSnapshot(model: CommandCenterModel): RecommendationRunSnapshot {
+  const runAt = new Date().toISOString();
+  return {
+    runAt,
+    datasetAsOf: model.dataset.asOf,
+    regimeKey: model.regime.key,
+    deploymentTilt: model.regime.deploymentTilt,
+    portfolioValue: model.portfolioValue,
+    benchmarkPrice: model.dataset.benchmark.price,
+    records: model.scorecards.map((card) => {
+      const security = model.dataset.securities.find((item) => item.symbol === card.symbol);
+      const reasonTags = [
+        ...card.explanation.topDrivers.slice(0, 3).map((d) => d.label),
+        ...card.explanation.topPenalties.slice(0, 2).map((p) => p.label),
+      ];
+      const rec: RecommendationRecord = {
+        symbol: card.symbol,
+        sector: security?.sector,
+        action: card.action,
+        composite: card.composite,
+        opportunityScore: card.opportunity.score,
+        timingScore: card.timing.score,
+        portfolioFitScore: card.portfolioFit.score,
+        confidence: card.confidence,
+        dataQualityScore: card.dataQualityScore,
+        riskOverall: card.risk.overall,
+        riskBucket: card.risk.bucket,
+        expected12m: card.expectedReturns[2].expected,
+        confidenceBand: card.confidenceBand,
+        priceAtRun: security?.price,
+        expectedReturns: card.expectedReturns,
+        suggestedWeightRange: card.allocation.suggestedWeightRange,
+        suggestedDollarRange: card.allocation.suggestedDollarRange,
+        reasonTags,
+        unknowns: [
+          ...(security?.dataQuality?.missingCoreFields ?? []),
+          ...card.explanation.dataQualityNotes.filter((note) =>
+            /stale|missing|inferred|coverage/i.test(note),
+          ),
+        ].slice(0, 5),
+      };
+      return rec;
+    }),
   };
 }
 

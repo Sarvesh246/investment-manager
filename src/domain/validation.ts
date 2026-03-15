@@ -1,9 +1,12 @@
 import { buildCommandCenterModel } from './engine';
 import { average, round } from './math';
-import type { MockDataset, ValidationReport } from './types';
+import type { ActionLabel, ConfidenceBand, MockDataset, ValidationReport } from './types';
 
 interface ValidationObservation {
   symbol: string;
+  sector: string;
+  action: ActionLabel;
+  confidenceBand: ConfidenceBand;
   composite: number;
   probabilityPositive: number;
   forwardReturn: number;
@@ -80,6 +83,9 @@ export function buildValidationReport(snapshots: MockDataset[]): ValidationRepor
 
       observations.push({
         symbol: card.symbol,
+        sector: currentSecurity.sector,
+        action: card.action,
+        confidenceBand: card.confidenceBand,
         composite: card.composite,
         probabilityPositive: card.expectedReturns[2].probabilityPositive,
         forwardReturn,
@@ -171,6 +177,93 @@ export function buildValidationReport(snapshots: MockDataset[]): ValidationRepor
     };
   });
 
+  const actions = [...new Set(observations.map((observation) => observation.action))]
+    .map((action) => {
+      const bucket = observations.filter((observation) => observation.action === action);
+
+      return {
+        action,
+        count: bucket.length,
+        avgForwardReturn: round(average(bucket.map((observation) => observation.forwardReturn)), 4),
+        avgBenchmarkRelativeReturn: round(
+          average(bucket.map((observation) => observation.benchmarkRelativeReturn)),
+          4,
+        ),
+        hitRate: round(
+          bucket.length === 0
+            ? 0
+            : bucket.filter((observation) => observation.forwardReturn > 0).length / bucket.length,
+          4,
+        ),
+      };
+    })
+    .filter((bucket) => bucket.count > 0)
+    .sort((left, right) => right.count - left.count);
+
+  const confidenceBands = [...new Set(observations.map((observation) => observation.confidenceBand))]
+    .map((band) => {
+      const bucket = observations.filter((observation) => observation.confidenceBand === band);
+
+      return {
+        band,
+        count: bucket.length,
+        predicted: round(average(bucket.map((observation) => observation.probabilityPositive)), 4),
+        realized: round(
+          bucket.length === 0
+            ? 0
+            : bucket.filter((observation) => observation.forwardReturn > 0).length / bucket.length,
+          4,
+        ),
+        avgForwardReturn: round(average(bucket.map((observation) => observation.forwardReturn)), 4),
+        hitRate: round(
+          bucket.length === 0
+            ? 0
+            : bucket.filter((observation) => observation.forwardReturn > 0).length / bucket.length,
+          4,
+        ),
+        brier: round(
+          average(
+            bucket.map((observation) => {
+              const actual = observation.forwardReturn > 0 ? 1 : 0;
+              return (observation.probabilityPositive - actual) ** 2;
+            }),
+          ),
+          4,
+        ),
+      };
+    })
+    .filter((bucket) => bucket.count > 0)
+    .sort((left, right) => right.count - left.count);
+
+  const sectors = [...new Set(observations.map((observation) => observation.sector))]
+    .map((sector) => {
+      const bucket = observations.filter((observation) => observation.sector === sector);
+
+      return {
+        sector,
+        count: bucket.length,
+        avgForwardReturn: round(average(bucket.map((observation) => observation.forwardReturn)), 4),
+        avgBenchmarkRelativeReturn: round(
+          average(bucket.map((observation) => observation.benchmarkRelativeReturn)),
+          4,
+        ),
+        hitRate: round(
+          bucket.length === 0
+            ? 0
+            : bucket.filter((observation) => observation.forwardReturn > 0).length / bucket.length,
+          4,
+        ),
+      };
+    })
+    .filter((bucket) => bucket.count > 0)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 12);
+
+  const topDecile = scoreDeciles.find((bucket) => bucket.decile === 10)?.avgForwardReturn ?? 0;
+  const bottomDecile = scoreDeciles.find((bucket) => bucket.decile === 1)?.avgForwardReturn ?? 0;
+  const avoidBucket = actions.find((bucket) => bucket.action === 'Avoid');
+  const highConfidenceBucket = confidenceBands.find((bucket) => bucket.band === 'High confidence');
+
   return {
     generatedAt: new Date().toISOString(),
     snapshotCount: ordered.length,
@@ -183,9 +276,19 @@ export function buildValidationReport(snapshots: MockDataset[]): ValidationRepor
     scoreDeciles,
     calibration,
     regimes,
+    actions,
+    confidenceBands,
+    sectors,
     notes: [
       'Validation uses point-in-time snapshot pairs and measures forward price change into the next available snapshot.',
       'This is intentionally simple and leakage-aware, but it is only as strong as the snapshot history you have recorded.',
+      `Top-vs-bottom decile spread is ${round(topDecile - bottomDecile, 4)}.`,
+      highConfidenceBucket
+        ? `High-confidence ideas realized ${round(highConfidenceBucket.realized * 100, 1)}% wins with predicted ${round(highConfidenceBucket.predicted * 100, 1)}% upside odds.`
+        : 'No high-confidence calibration bucket is available yet.',
+      avoidBucket
+        ? `Avoid signals averaged ${round(avoidBucket.avgForwardReturn * 100, 1)}% forward return.`
+        : 'No Avoid bucket observations are available yet.',
     ],
   };
 }

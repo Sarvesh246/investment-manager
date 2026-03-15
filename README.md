@@ -1,4 +1,4 @@
-# Investment Command Center
+# Atlas Capital Center (ACC)
 
 Personal investing command center built as a single-user quantitative operating system. The current implementation is a desktop-first React app with:
 

@@ -1,4 +1,4 @@
-import { createHashRouter, isRouteErrorResponse, RouterProvider, useRouteError } from 'react-router-dom';
+import { createHashRouter, isRouteErrorResponse, Navigate, RouterProvider, useRouteError } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import {
   AlertsPage,
@@ -81,6 +81,10 @@ const router = createHashRouter([
       {
         path: 'stocks/:symbol',
         element: <StockPage />,
+      },
+      {
+        path: 'main-content',
+        element: <Navigate to="/" replace />,
       },
     ],
   },

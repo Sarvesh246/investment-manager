@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import { X } from 'lucide-react';
 import clsx from 'clsx';
 
 interface ModalProps {
@@ -100,7 +101,7 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
             onClick={onClose}
             aria-label="Close"
           >
-            ×
+            <X size={18} strokeWidth={2} aria-hidden />
           </button>
         </div>
         <div className="modal-body">{children}</div>
@@ -108,3 +109,4 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
     </div>
   );
 }
+

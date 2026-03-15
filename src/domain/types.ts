@@ -18,7 +18,21 @@ export type MarketCapBucket = 'micro' | 'small' | 'mid' | 'large' | 'mega';
 
 export type SecurityType = 'stock' | 'adr' | 'reit';
 
-export type AppTheme = 'emerald' | 'cobalt' | 'amber' | 'rose' | 'graphite';
+export type AppTheme =
+  | 'emerald'
+  | 'cobalt'
+  | 'amber'
+  | 'rose'
+  | 'graphite'
+  | 'violet'
+  | 'teal'
+  | 'mint'
+  | 'orange'
+  | 'indigo'
+  | 'cyan'
+  | 'lime'
+  | 'fuchsia'
+  | 'sky';
 
 export type RiskBucket =
   | 'Defensive'
@@ -26,6 +40,21 @@ export type RiskBucket =
   | 'Elevated'
   | 'Aggressive'
   | 'Fragile';
+
+export type ConfidenceBand = 'High confidence' | 'Medium confidence' | 'Low confidence';
+
+export type ThesisHealth = 'Improving' | 'Stable' | 'Weakening' | 'Broken';
+
+export type FreshnessStatus = 'fresh' | 'aging' | 'stale';
+
+export type SellDiscipline =
+  | 'Thesis broken'
+  | 'Upside mostly realized'
+  | 'Valuation too stretched'
+  | 'Risk increased too much'
+  | 'Portfolio concentration issue'
+  | 'Better replacement available'
+  | 'Event risk no longer worth it';
 
 export type ActionLabel =
   | 'Buy now'
@@ -35,9 +64,15 @@ export type ActionLabel =
   | 'Avoid'
   | 'Hold'
   | 'Trim'
+  | 'Sell'
+  | 'Rotate'
+  | 'De-risk'
+  | 'Take profit'
   | 'Reassess after earnings'
   | 'High-upside / high-risk only'
   | 'Not suitable for current portfolio';
+
+export type OutcomeHorizon = '1W' | '1M' | '3M' | '6M' | '12M';
 
 export type RegimeKey =
   | 'Bullish trend / low vol'
@@ -53,7 +88,11 @@ export type PlannerPriority =
   | 'diversification'
   | 'conviction';
 
-export type DeploymentStyle = 'deploy-all' | 'stage-entries' | 'hold-flexibility';
+export type DeploymentStyle =
+  | 'deploy-all'
+  | 'stage-entries'
+  | 'hold-flexibility'
+  | 'safe-starter';
 
 export type TransactionKind =
   | 'deposit'
@@ -334,6 +373,32 @@ export interface ValidationRegimeMetric {
   hitRate: number;
 }
 
+export interface ValidationActionMetric {
+  action: ActionLabel;
+  count: number;
+  avgForwardReturn: number;
+  avgBenchmarkRelativeReturn: number;
+  hitRate: number;
+}
+
+export interface ValidationConfidenceMetric {
+  band: ConfidenceBand;
+  count: number;
+  predicted: number;
+  realized: number;
+  avgForwardReturn: number;
+  hitRate: number;
+  brier: number;
+}
+
+export interface ValidationSectorMetric {
+  sector: string;
+  count: number;
+  avgForwardReturn: number;
+  avgBenchmarkRelativeReturn: number;
+  hitRate: number;
+}
+
 export interface ValidationReport {
   generatedAt: string;
   snapshotCount: number;
@@ -346,7 +411,20 @@ export interface ValidationReport {
   scoreDeciles: ValidationDecileMetric[];
   calibration: ValidationCalibrationMetric[];
   regimes: ValidationRegimeMetric[];
+  actions?: ValidationActionMetric[];
+  confidenceBands?: ValidationConfidenceMetric[];
+  sectors?: ValidationSectorMetric[];
   notes: string[];
+}
+
+/** Optional sector-level context (e.g. from current events, trends, geopolitics) to nudge risk/confidence. */
+export interface SectorContextEntry {
+  sector: string;
+  /** 0–100 headwind score; higher = more risk or lower confidence for this sector. */
+  headwind?: number;
+  /** 0–100 tailwind score; higher = less risk or higher confidence for this sector. */
+  tailwind?: number;
+  note?: string;
 }
 
 export interface MockDataset {
@@ -366,6 +444,8 @@ export interface MockDataset {
   journal: JournalEntry[];
   macroSnapshot?: MacroSnapshot;
   validationReport?: ValidationReport;
+  /** Optional: current events / trends by sector; can be filled by UI or a future news/events API. */
+  sectorContext?: SectorContextEntry[];
 }
 
 export interface ScoreContribution {
@@ -419,6 +499,8 @@ export interface FitImpact {
 export interface AllocationSuggestion {
   suggestedWeight: number;
   suggestedDollars: number;
+  suggestedWeightRange?: [number, number];
+  suggestedDollarRange?: [number, number];
   maxWeight: number;
   entryStyle: string;
   reserveAfterTrade: number;
@@ -438,6 +520,70 @@ export interface Explainability {
   changeTriggers: string[];
 }
 
+export interface DecisionFrame {
+  why: string;
+  mainRisk: string;
+  suggestedRole: string;
+  sizingDiscipline: string;
+}
+
+export interface ThesisSummary {
+  thesisSummary: string;
+  drivers: string[];
+  risks: string[];
+  thesisHealthScore: number;
+}
+
+export interface SignalAudit {
+  redundancyPenalty: number;
+  priceSignalCrowding: number;
+  fragilityCrowding: number;
+  families: Array<{
+    family: string;
+    averageScore: number;
+    crowding: number;
+    weightShare: number;
+    correlatedPairs: string[];
+  }>;
+  correlatedPairs: Array<{
+    family: string;
+    pair: string;
+    correlation: number;
+  }>;
+  notes: string[];
+}
+
+export interface FreshnessBreakdown {
+  quoteAsOf: string;
+  quoteFreshnessDays: number;
+  quoteStatus: FreshnessStatus;
+  fundamentalsAsOf: string;
+  fundamentalsFreshnessDays: number;
+  fundamentalsStatus: FreshnessStatus;
+  macroAsOf?: string;
+  macroFreshnessDays?: number;
+  macroStatus?: FreshnessStatus;
+  validationAsOf?: string;
+  validationFreshnessDays?: number;
+  validationStatus?: FreshnessStatus;
+  modelAsOf: string;
+  modelFreshnessDays: number;
+  modelStatus: FreshnessStatus;
+}
+
+export interface RecommendationChange {
+  previousComposite: number;
+  compositeDelta: number;
+  previousRisk: number;
+  riskDelta: number;
+  previousDownside: number;
+  downsideDelta: number;
+  previousAction: ActionLabel;
+  actionChanged: boolean;
+  summary: string;
+  factorMoves: string[];
+}
+
 export interface ScoreCard {
   symbol: string;
   businessQuality: number;
@@ -447,11 +593,22 @@ export interface ScoreCard {
   timing: ScoreBreakdown;
   portfolioFit: ScoreBreakdown;
   confidence: number;
+  confidenceBand: ConfidenceBand;
   dataQualityScore: number;
+  dataReliabilityScore: number;
+  macroAlignmentScore: number;
   composite: number;
   risk: RiskBreakdown;
   expectedReturns: ExpectedReturnScenario[];
   action: ActionLabel;
+  thesisHealth: ThesisHealth;
+  thesis: ThesisSummary;
+  sellDiscipline?: SellDiscipline;
+  replacementIdea?: string;
+  decision: DecisionFrame;
+  freshness: FreshnessBreakdown;
+  recommendationChange: RecommendationChange;
+  signalAudit: SignalAudit;
   fitImpact: FitImpact;
   allocation: AllocationSuggestion;
   explanation: Explainability;
@@ -463,6 +620,7 @@ export interface RegimeSnapshot {
   deploymentTilt: number;
   narrative: string;
   factorEmphasis: string[];
+  environment: string[];
 }
 
 export interface HoldingAnalysis {
@@ -477,6 +635,26 @@ export interface HoldingAnalysis {
   riskContribution: number;
   overlapToPortfolio: number;
   concentrationFlag: boolean;
+  thesisHealth: ThesisHealth;
+  confidenceBand: ConfidenceBand;
+  sellDiscipline?: SellDiscipline;
+  replacementIdea?: string;
+}
+
+export interface FreshnessNode {
+  label: string;
+  asOf?: string;
+  ageDays?: number;
+  status: FreshnessStatus;
+  note: string;
+}
+
+export interface FreshnessHierarchy {
+  quotes: FreshnessNode;
+  fundamentals: FreshnessNode;
+  macro: FreshnessNode;
+  validation: FreshnessNode;
+  model: FreshnessNode;
 }
 
 export interface AlertItem {
@@ -495,10 +673,22 @@ export interface WatchlistMover {
   note: string;
 }
 
+export interface WatchlistSignal {
+  id: string;
+  watchlist: string;
+  symbol: string;
+  kind: 'Opportunity appearing' | 'Risk increasing' | 'Earnings approaching';
+  message: string;
+  severity: 'high' | 'medium' | 'low';
+  route: string;
+}
+
 export interface PlannedAllocation {
   symbol: string;
   dollars: number;
   weight: number;
+  dollarRange?: [number, number];
+  weightRange?: [number, number];
   role: string;
   entryStyle: string;
   rationale: string;
@@ -514,7 +704,10 @@ export interface DeploymentPlan {
   deployNow: number;
   holdBack: number;
   reserveTarget: number;
+  cashReserveSuggestion: number;
   posture: string;
+  expectedReturnEstimate: number;
+  riskEstimate: number;
   rationale: string[];
   allocations: PlannedAllocation[];
   avoids: AvoidanceItem[];
@@ -528,6 +721,98 @@ export interface PlannerInputs {
   deploymentStyle: DeploymentStyle;
 }
 
+/** Single recommendation record for one symbol in a model run. Used for Recommendation History / Model Memory. */
+export interface RecommendationRecord {
+  symbol: string;
+  sector?: string;
+  action: ActionLabel;
+  composite: number;
+  opportunityScore: number;
+  timingScore: number;
+  portfolioFitScore: number;
+  confidence: number;
+  dataQualityScore: number;
+  riskOverall: number;
+  riskBucket: RiskBucket;
+  expected12m: number;
+  confidenceBand: ConfidenceBand;
+  priceAtRun?: number;
+  expectedReturns?: ExpectedReturnScenario[];
+  suggestedWeightRange?: [number, number];
+  suggestedDollarRange?: [number, number];
+  reasonTags: string[];
+  unknowns?: string[];
+  outcomes?: Partial<Record<OutcomeHorizon, RecommendationOutcome>>;
+}
+
+export interface RecommendationOutcome {
+  horizon: OutcomeHorizon;
+  measuredAt: string;
+  forwardReturn: number;
+  benchmarkRelativeReturn: number;
+  hit: boolean;
+  outperformed: boolean;
+}
+
+export interface DecisionAuditRecord {
+  id: string;
+  date: string;
+  symbol: string;
+  oldAction: ActionLabel;
+  newAction: ActionLabel;
+  reason: string;
+}
+
+export interface PortfolioFragilityAnalysis {
+  fragilityScore: number;
+  concentrationFlags: string[];
+  hiddenExposureThemes: string[];
+}
+
+export interface StressScenarioResult {
+  scenario: string;
+  description: string;
+  portfolioDrawdown: number;
+  topRiskContributors: Array<{
+    symbol: string;
+    impact: number;
+  }>;
+}
+
+export interface OpportunityRadarItem {
+  symbol: string;
+  setup: string;
+  score: number;
+  explanation: string;
+}
+
+export interface RiskBudgetSummary {
+  riskBudgetTotal: number;
+  riskUsed: number;
+  riskByHolding: Array<{
+    symbol: string;
+    risk: number;
+  }>;
+  warning?: string;
+}
+
+export interface PortfolioIQSummary {
+  score: number;
+  summary: string;
+  drivers: string[];
+}
+
+/** Snapshot of a full model run for later comparison with forward outcomes. */
+export interface RecommendationRunSnapshot {
+  runAt: string;
+  datasetAsOf: string;
+  regimeKey: RegimeKey;
+  deploymentTilt: number;
+  portfolioValue: number;
+  benchmarkPrice?: number;
+  records: RecommendationRecord[];
+}
+
 export interface CommandCenterModel {
   dataset: MockDataset;
   regime: RegimeSnapshot;
@@ -536,13 +821,20 @@ export interface CommandCenterModel {
   ledgerSummary: PortfolioLedgerSummary;
   alerts: AlertItem[];
   watchlistMovers: WatchlistMover[];
+  watchlistSignals: WatchlistSignal[];
   deploymentPlan: DeploymentPlan;
   sectorExposure: Array<{ sector: string; weight: number }>;
   factorExposure: Array<{ factor: string; value: number }>;
   riskExposure: Array<{ bucket: RiskBucket; value: number }>;
+  portfolioFragility: PortfolioFragilityAnalysis;
+  stressTests: StressScenarioResult[];
+  opportunityRadar: OpportunityRadarItem[];
+  riskBudget: RiskBudgetSummary;
+  portfolioIQ: PortfolioIQSummary;
   concentrationIssues: string[];
   notableChanges: string[];
   portfolioValue: number;
   diversificationScore: number;
   averageRisk: number;
+  freshnessHierarchy: FreshnessHierarchy;
 }

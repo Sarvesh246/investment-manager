@@ -7,8 +7,8 @@ export function exportHoldingsCsv(holdings: Array<{ symbol: string; shares: numb
     h.symbol,
     h.shares.toLocaleString('en-US', { maximumFractionDigits: 6 }),
     formatCurrency(h.costBasis * h.shares),
-    h.marketValue != null ? formatCurrency(h.marketValue) : '—',
-    h.weight != null ? formatPercent(h.weight, 1) : '—',
+    h.marketValue != null ? formatCurrency(h.marketValue) : '-',
+    h.weight != null ? formatPercent(h.weight, 1) : '-',
   ]);
   const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
   return new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -53,3 +53,4 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+

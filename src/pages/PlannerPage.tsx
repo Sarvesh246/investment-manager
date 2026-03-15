@@ -1,26 +1,40 @@
-import { useState } from 'react';
+import { useEffect } from 'react';
+import { ListTodo } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
   Panel,
   PageHeader,
   PageJumpNav,
+  Tag,
   Table,
 } from './../components/ui';
 import { buildDeploymentPlan } from './../domain/engine';
 import type { PlannerInputs } from './../domain/types';
+import { useStoredState } from './../hooks/useStoredState';
 import { formatCurrency, formatPercent, formatReturn } from './../lib/format';
-import { buyBlocker, buyPotentialScore, potentialBuyRows } from './shared';
+import { buyBlocker, buyPotentialScore, potentialBuyRows, starterSizeLabel } from './shared';
 import { usePortfolioWorkspace } from './../runtime/portfolioContext';
 
-export function PlannerPage() {
+function PlannerPageContent() {
   const { dataset, model } = usePortfolioWorkspace();
-  const [inputs, setInputs] = useState<PlannerInputs>({
+  const [inputs, setInputs] = useStoredState<PlannerInputs>('ic-planner-inputs', {
     availableCash: dataset.user.investableCash,
     riskTolerance: dataset.user.riskTolerance,
     horizonMonths: dataset.user.timeHorizonMonths,
     priority: 'diversification',
     deploymentStyle: 'stage-entries',
   });
+
+  useEffect(() => {
+    setInputs((current) =>
+      current.availableCash === dataset.user.investableCash
+        ? current
+        : {
+            ...current,
+            availableCash: dataset.user.investableCash,
+          },
+    );
+  }, [dataset.user.investableCash, setInputs]);
 
   const plan = buildDeploymentPlan(
     dataset,
@@ -53,14 +67,15 @@ export function PlannerPage() {
           title="Planner Inputs"
           eyebrow="Controls"
           subtitle="Change these inputs to see how your plan changes."
+          helpText="This is where you tell the app how cautious or aggressive you want to be with new cash right now."
         >
           <div className="filters filters--stacked">
             <label>
               Cash To Invest
               <input
                 type="number"
-                min={1000}
-                step={500}
+                min={0}
+                step={0.01}
                 value={inputs.availableCash}
                 onChange={(event) =>
                   setInputs((current) => ({
@@ -73,6 +88,7 @@ export function PlannerPage() {
             <label>
               Risk Style
               <select
+                className="filter-select"
                 value={inputs.riskTolerance}
                 onChange={(event) =>
                   setInputs((current) => ({
@@ -106,6 +122,7 @@ export function PlannerPage() {
             <label>
               Priority
               <select
+                className="filter-select"
                 value={inputs.priority}
                 onChange={(event) =>
                   setInputs((current) => ({
@@ -123,6 +140,7 @@ export function PlannerPage() {
             <label>
               How To Enter
               <select
+                className="filter-select"
                 value={inputs.deploymentStyle}
                 onChange={(event) =>
                   setInputs((current) => ({
@@ -134,12 +152,19 @@ export function PlannerPage() {
                 <option value="deploy-all">Deploy all</option>
                 <option value="stage-entries">Stage entries</option>
                 <option value="hold-flexibility">Hold flexibility</option>
+                <option value="safe-starter">Safe starter</option>
               </select>
             </label>
           </div>
         </Panel>
 
-        <Panel id="plan-output" title="Recommended Deployment" eyebrow="Output" subtitle={plan.posture}>
+        <Panel
+          id="plan-output"
+          title="Recommended Deployment"
+          eyebrow="Output"
+          subtitle={plan.posture}
+          helpText="This is the planner's plain-English answer: how much to invest now, how much to hold back, and why."
+        >
           <div className="planner-callout">
             <h3>
               Deploy {formatCurrency(plan.deployNow)} now and keep {formatCurrency(plan.holdBack)} back.
@@ -162,17 +187,29 @@ export function PlannerPage() {
           title="Suggested Allocations"
           eyebrow="Capital Plan"
           subtitle="Candidates are selected and sized under fit, risk, and reserve constraints."
+          helpText="These are suggested starter ranges, not exact precision targets. The goal is to help you size sensibly without pretending the model knows the perfect weight."
         >
           {plan.allocations.length > 0 ? (
             <Table
-              columns={['Symbol', 'Role', 'Dollars', 'Weight', 'Entry Style']}
+              columns={['Symbol', 'Role', 'Starter Size', 'Dollars', 'Weight', 'Entry Style']}
               rows={plan.allocations.map((allocation) => [
                 <Link key={allocation.symbol} to={`/stocks/${allocation.symbol}`} className="symbol-link">
                   {allocation.symbol}
                 </Link>,
                 <span key={`${allocation.symbol}-role`}>{allocation.role}</span>,
-                <span key={`${allocation.symbol}-dollars`}>{formatCurrency(allocation.dollars)}</span>,
-                <span key={`${allocation.symbol}-weight`}>{formatPercent(allocation.weight)}</span>,
+                <Tag key={`${allocation.symbol}-starter`} tone="neutral">
+                  {starterSizeLabel(allocation.weightRange)}
+                </Tag>,
+                <span key={`${allocation.symbol}-dollars`}>
+                  {allocation.dollarRange
+                    ? `${formatCurrency(allocation.dollarRange[0])} - ${formatCurrency(allocation.dollarRange[1])}`
+                    : formatCurrency(allocation.dollars)}
+                </span>,
+                <span key={`${allocation.symbol}-weight`}>
+                  {allocation.weightRange
+                    ? `${formatPercent(allocation.weightRange[0])} - ${formatPercent(allocation.weightRange[1])}`
+                    : formatPercent(allocation.weight)}
+                </span>,
                 <span key={`${allocation.symbol}-entry`}>{allocation.entryStyle}</span>,
               ])}
             />
@@ -191,6 +228,9 @@ export function PlannerPage() {
             />
           ) : (
             <div className="empty-state empty-state--compact">
+              <div className="empty-state__icon" aria-hidden="true">
+                <ListTodo size={36} strokeWidth={1.25} />
+              </div>
               <h2>No next-up names yet.</h2>
               <p>The planner does not see any non-held stock worth moving into the candidate queue right now.</p>
             </div>
@@ -202,6 +242,7 @@ export function PlannerPage() {
           title="What Not To Buy"
           eyebrow="Avoid List"
           subtitle="Names blocked by portfolio fit, risk, sector rules, or event timing."
+          helpText="This is just as important as the buy list. It shows what the planner is intentionally refusing to fund right now and why."
         >
           <div className="stack-list">
             {plan.avoids.map((item) => (
@@ -215,4 +256,15 @@ export function PlannerPage() {
       </div>
     </div>
   );
+}
+
+export function PlannerPage() {
+  const { dataset } = usePortfolioWorkspace();
+  const plannerSeed = [
+    dataset.user.investableCash,
+    dataset.user.riskTolerance,
+    dataset.user.timeHorizonMonths,
+  ].join(':');
+
+  return <PlannerPageContent key={plannerSeed} />;
 }

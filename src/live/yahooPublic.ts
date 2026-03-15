@@ -229,18 +229,24 @@ function mapChartResultToQuote(result: ChartQuoteResult | undefined) {
 }
 
 export class YahooPublicProvider {
-  async fetchQuoteSnapshots(
+  async fetchQuoteBatch(
     symbols: string[],
     progress?: (verified: number, total: number) => void,
   ) {
     if (symbols.length === 0) {
-      return {} satisfies Record<string, LiveQuoteSnapshot>;
+      return {
+        quotes: {} satisfies Record<string, LiveQuoteSnapshot>,
+        errors: {} satisfies Record<string, string>,
+        rateLimited: false,
+      };
     }
 
     const unique = [...new Set(symbols.map((symbol) => normalizeSymbol(symbol)).filter(Boolean))];
     const total = unique.length;
     const batches = chunk(unique, 5);
     const quotes: Record<string, LiveQuoteSnapshot> = {};
+    const errors: Record<string, string> = {};
+    let rateLimited = false;
     let verified = 0;
 
     for (const batch of batches) {
@@ -254,21 +260,50 @@ export class YahooPublicProvider {
             `${yahooBaseUrl}/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m&includePrePost=true`,
           );
 
-          return mapChartResultToQuote(response.chart.result?.[0]);
+          return {
+            symbol,
+            quote: mapChartResultToQuote(response.chart.result?.[0]),
+          };
         }),
       );
 
-      batchResults.forEach((result) => {
-        if (result.status === 'fulfilled' && result.value) {
-          quotes[result.value.symbol] = result.value;
+      batchResults.forEach((result, index) => {
+        const requestedSymbol = batch[index];
+
+        if (result.status === 'fulfilled') {
+          if (result.value.quote) {
+            quotes[result.value.quote.symbol] = result.value.quote;
+          } else {
+            errors[requestedSymbol] = 'No live quote data returned for symbol.';
+          }
+          return;
         }
+
+        const reason = result.reason;
+        if (reason instanceof YahooRateLimitError) {
+          rateLimited = true;
+        }
+        errors[requestedSymbol] =
+          reason instanceof Error ? reason.message : 'Quote request failed.';
       });
 
       verified += batch.length;
       progress?.(Math.min(verified, total), total);
     }
 
-    return quotes;
+    return {
+      quotes,
+      errors,
+      rateLimited,
+    };
+  }
+
+  async fetchQuoteSnapshots(
+    symbols: string[],
+    progress?: (verified: number, total: number) => void,
+  ) {
+    const batch = await this.fetchQuoteBatch(symbols, progress);
+    return batch.quotes;
   }
 
   async fetchSecurityRecord(seed: SecuritySeed): Promise<LiveProviderRecord> {

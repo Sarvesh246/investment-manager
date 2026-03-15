@@ -27,7 +27,7 @@ interface SecCompanyFactsResponse {
 const annualForms = new Set(['10-K', '10-K/A', '20-F', '20-F/A', '40-F', '40-F/A']);
 const secBaseUrl = 'https://data.sec.gov';
 const secTickerUrl = 'https://www.sec.gov/files/company_tickers.json';
-const defaultUserAgent = 'InvestmentCenter/0.1 (configure SEC_USER_AGENT in sync scripts)';
+const defaultUserAgent = 'AtlasCapitalCommand/0.1 (configure SEC_USER_AGENT in sync scripts)';
 
 let tickerLookupPromise: Promise<Map<string, { cik: string; title: string }>> | null = null;
 

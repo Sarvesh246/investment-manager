@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-03-09T05:14:19.382Z",
+  "generatedAt": "2026-03-14T18:25:10.799Z",
   "snapshotCount": 3,
   "pairCount": 2,
   "hitRate": 0.0417,
   "averageForwardReturn": 0,
   "averageBenchmarkRelativeReturn": 0,
   "averageTurnover": 0,
-  "brierScore": 0.2251,
+  "brierScore": 0.2277,
   "scoreDeciles": [
     {
       "decile": 4,
@@ -33,24 +33,24 @@
   "calibration": [
     {
       "bucket": "30-40%",
-      "count": 6,
-      "predicted": 0.3577,
+      "count": 4,
+      "predicted": 0.3395,
       "realized": 0,
-      "brier": 0.1291
+      "brier": 0.1159
     },
     {
       "bucket": "40-50%",
-      "count": 8,
-      "predicted": 0.459,
+      "count": 10,
+      "predicted": 0.4504,
       "realized": 0,
-      "brier": 0.2108
+      "brier": 0.2035
     },
     {
       "bucket": "50-60%",
       "count": 10,
-      "predicted": 0.556,
+      "predicted": 0.558,
       "realized": 0.1,
-      "brier": 0.2941
+      "brier": 0.2967
     }
   ],
   "regimes": [
@@ -61,8 +61,119 @@
       "hitRate": 0.0417
     }
   ],
+  "actions": [
+    {
+      "action": "Avoid",
+      "count": 12,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "action": "Trim",
+      "count": 6,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "action": "Take profit",
+      "count": 4,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "action": "Reassess after earnings",
+      "count": 2,
+      "avgForwardReturn": 0.0002,
+      "avgBenchmarkRelativeReturn": 0.0002,
+      "hitRate": 0.5
+    }
+  ],
+  "confidenceBands": [
+    {
+      "band": "Medium confidence",
+      "count": 22,
+      "predicted": 0.4675,
+      "realized": 0,
+      "avgForwardReturn": 0,
+      "hitRate": 0,
+      "brier": 0.2251
+    },
+    {
+      "band": "Low confidence",
+      "count": 2,
+      "predicted": 0.579,
+      "realized": 0.5,
+      "avgForwardReturn": 0.0002,
+      "hitRate": 0.5,
+      "brier": 0.2562
+    }
+  ],
+  "sectors": [
+    {
+      "sector": "Technology",
+      "count": 10,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0.1
+    },
+    {
+      "sector": "Financial Services",
+      "count": 2,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "sector": "Basic Materials",
+      "count": 2,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "sector": "Industrials",
+      "count": 2,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "sector": "Utilities",
+      "count": 2,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "sector": "Healthcare",
+      "count": 2,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "sector": "Consumer Cyclical",
+      "count": 2,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "sector": "Energy",
+      "count": 2,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    }
+  ],
   "notes": [
     "Validation uses point-in-time snapshot pairs and measures forward price change into the next available snapshot.",
-    "This is intentionally simple and leakage-aware, but it is only as strong as the snapshot history you have recorded."
+    "This is intentionally simple and leakage-aware, but it is only as strong as the snapshot history you have recorded.",
+    "Top-vs-bottom decile spread is 0.",
+    "No high-confidence calibration bucket is available yet.",
+    "Avoid signals averaged 0% forward return."
   ]
 }

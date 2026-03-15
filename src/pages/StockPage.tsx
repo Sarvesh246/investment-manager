@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
   Panel,
   MetricCard,
@@ -11,6 +11,7 @@ import {
   Table,
   Tag,
 } from './../components/ui';
+import { Skeleton, SkeletonText } from './../components/Skeleton';
 import { SaveToWatchlistButton } from './../components/SaveToWatchlistButton';
 import { getHolding, getScorecard, getSecurity } from './../domain/engine';
 import {
@@ -24,11 +25,16 @@ import { actionHelp } from './../lib/helpText';
 import { normalizeSymbol } from './../lib/symbols';
 import {
   dataQualityTone,
+  freshnessText,
   liveStatusText,
   liveStatusTone,
+  recommendationChangeTone,
   simpleActionText,
   sourceModeLabel,
   toneForAction,
+  toneForConfidenceBand,
+  toneForFreshness,
+  toneForThesisHealth,
 } from './shared';
 import { usePortfolioWorkspace } from './../runtime/portfolioContext';
 
@@ -36,6 +42,8 @@ export function StockPage() {
   const {
     dataset,
     model,
+    symbolDirectory,
+    symbolDirectoryState,
     loadingSymbols,
     quoteErrors,
     livePriceSymbols,
@@ -66,23 +74,61 @@ export function StockPage() {
   const security = getSecurity(model, normalizedSymbol);
   const scorecard = getScorecard(model, normalizedSymbol);
   const holding = getHolding(model, normalizedSymbol);
+  const directoryMatch = symbolDirectory.find(
+    (entry) =>
+      entry.symbol === normalizedSymbol || normalizeSymbol(entry.displaySymbol) === normalizedSymbol,
+  );
 
   if (!security || !scorecard) {
+    const isLoading =
+      loadingSymbols.includes(normalizedSymbol) ||
+      (!quoteErrors[normalizedSymbol] &&
+        (symbolDirectoryState === 'loading' || Boolean(directoryMatch)));
+
     return (
       <div className="page">
         <PageHeader
-          title={loadingSymbols.includes(normalizedSymbol) ? 'Loading Live Coverage' : 'Stock Not Found'}
+          title={isLoading ? 'Loading Live Coverage' : 'Stock Not Found'}
           summary={
-            loadingSymbols.includes(normalizedSymbol)
-              ? `Fetching Yahoo Finance market data for ${normalizedSymbol}.`
+            isLoading
+              ? `Fetching market coverage for ${directoryMatch?.name ?? normalizedSymbol}.`
               : quoteErrors[normalizedSymbol]
                 ? `Yahoo Finance did not return usable coverage for ${normalizedSymbol}: ${quoteErrors[normalizedSymbol]}`
-                : 'The requested symbol is not available in the current dataset yet.'
+                : `${normalizedSymbol} is not in the current stock directory.`
           }
         />
+        <nav className="page-back-links" aria-label="Back navigation">
+          <Link to="/recommendations" className="panel-link action-button">Back to Ideas</Link>
+          <Link to="/portfolio" className="panel-link action-button">Back to Portfolio</Link>
+        </nav>
+        {isLoading ? (
+          <section className="page-section">
+            <div className="stock-loading-skeleton">
+              <SkeletonText lines={2} />
+              <div className="stock-loading-skeleton__grid">
+                <Skeleton className="skeleton--card" />
+                <Skeleton className="skeleton--card" />
+                <Skeleton className="skeleton--card" />
+                <Skeleton className="skeleton--card" />
+              </div>
+            </div>
+          </section>
+        ) : null}
       </div>
     );
   }
+
+  const modelKnows = [
+    ...scorecard.explanation.topDrivers.slice(0, 3).map((driver) => `${driver.label}: ${driver.narrative}`),
+    ...scorecard.explanation.fitNotes.slice(0, 2),
+  ].slice(0, 5);
+  const modelUnknowns = [
+    ...(security.dataQuality?.missingCoreFields.length
+      ? [`Missing fields: ${security.dataQuality.missingCoreFields.join(', ')}`]
+      : []),
+    ...scorecard.explanation.dataQualityNotes.filter((note) => /stale|missing|inferred|coverage/i.test(note)),
+    ...scorecard.signalAudit.notes.filter((note) => /double counting|correlated|crowding/i.test(note)),
+  ].slice(0, 5);
 
   return (
     <div className="page">
@@ -140,7 +186,7 @@ export function StockPage() {
         <MetricCard
           label="Overall Rating"
           value={`${scorecard.composite}/100`}
-          detail={`Confidence ${scorecard.confidence}/100`}
+          detail={`${scorecard.confidenceBand} - Confidence ${scorecard.confidence}/100`}
           tone={scorecard.composite >= 65 ? 'positive' : 'neutral'}
         />
         <MetricCard
@@ -154,6 +200,18 @@ export function StockPage() {
           value={`${scorecard.portfolioFit.score}/100`}
           detail={`Cluster overlap ${scorecard.fitImpact.clusterOverlap}/100`}
           tone={scorecard.portfolioFit.score >= 55 ? 'positive' : 'neutral'}
+        />
+        <MetricCard
+          label="Thesis Health"
+          value={scorecard.thesisHealth}
+          detail={holding?.sellDiscipline ?? 'No exit trigger currently active'}
+          tone={
+            scorecard.thesisHealth === 'Improving'
+              ? 'positive'
+              : scorecard.thesisHealth === 'Stable'
+                ? 'neutral'
+                : 'negative'
+          }
         />
         <MetricCard
           label="12M Base Case"
@@ -170,6 +228,51 @@ export function StockPage() {
           tone="neutral"
         />
       </div>
+
+      <Panel
+        title="Decision Hierarchy"
+        eyebrow="Action / Why / Risk / Size"
+        subtitle="This keeps the recommendation chain explicit: attractiveness, fragility, timing, fit, then action."
+      >
+        <div className="detail-grid">
+          <div className="text-card">
+            <strong>Action</strong>
+            <div className="recommendation-card__meta-row">
+              <Tag tone={toneForAction(scorecard.action)}>{scorecard.action}</Tag>
+              <Tag tone={toneForConfidenceBand(scorecard.confidenceBand)}>{scorecard.confidenceBand}</Tag>
+            </div>
+          </div>
+          <div className="text-card">
+            <strong>Thesis health</strong>
+            <div className="recommendation-card__meta-row">
+              <Tag tone={toneForThesisHealth(scorecard.thesisHealth)}>{scorecard.thesisHealth}</Tag>
+              {holding?.sellDiscipline ? <Tag tone="negative">{holding.sellDiscipline}</Tag> : null}
+            </div>
+          </div>
+          <div className="text-card">
+            <strong>Why</strong>
+            <p>{scorecard.decision.why}</p>
+          </div>
+          <div className="text-card">
+            <strong>Main risk</strong>
+            <p>{scorecard.decision.mainRisk}</p>
+          </div>
+          <div className="text-card">
+            <strong>Suggested role</strong>
+            <p>{scorecard.decision.suggestedRole}</p>
+          </div>
+          <div className="text-card">
+            <strong>Sizing discipline</strong>
+            <p>{scorecard.decision.sizingDiscipline}</p>
+          </div>
+        </div>
+        {holding?.replacementIdea ? (
+          <div className="settings-note">
+            <strong>Replacement logic</strong>
+            <p>{holding.replacementIdea}</p>
+          </div>
+        ) : null}
+      </Panel>
 
       <Panel
         id="stock-live"
@@ -243,6 +346,30 @@ export function StockPage() {
         </Panel>
 
         <Panel
+          title="Risk Breakdown"
+          eyebrow="Sub-Risks"
+          subtitle="Risk is split into market, event, business, valuation, and portfolio contribution so one noisy number does not hide the source of danger."
+        >
+          <div className="signal-grid">
+            <SignalBar label="Market" value={scorecard.risk.market} tone={scorecard.risk.market > 60 ? 'negative' : 'neutral'} />
+            <SignalBar label="Event" value={scorecard.risk.event} tone={scorecard.risk.event > 60 ? 'negative' : 'neutral'} />
+            <SignalBar label="Business" value={scorecard.risk.business} tone={scorecard.risk.business > 60 ? 'negative' : 'neutral'} />
+            <SignalBar label="Valuation" value={scorecard.risk.valuation} tone={scorecard.risk.valuation > 60 ? 'negative' : 'neutral'} />
+            <SignalBar
+              label="Portfolio contribution"
+              value={scorecard.risk.portfolioContribution}
+              tone={scorecard.risk.portfolioContribution > 60 ? 'negative' : 'neutral'}
+            />
+          </div>
+          <div className="mini-stack">
+            <ScorePill label="Overall risk" score={`${scorecard.risk.overall}/100`} tone={scorecard.risk.overall > 60 ? 'negative' : 'neutral'} />
+            <ScorePill label="Bucket" score={scorecard.risk.bucket} tone={scorecard.risk.overall > 60 ? 'negative' : 'neutral'} />
+            <ScorePill label="Expected downside" score={formatPercent(scorecard.risk.expectedDownside * 100)} tone="negative" />
+            <ScorePill label="Size cap" score={`${scorecard.risk.sizeCapMultiplier.toFixed(2)}x`} tone="neutral" />
+          </div>
+        </Panel>
+
+        <Panel
           title="Data Quality And Integrity"
           eyebrow="Point-In-Time Inputs"
           subtitle="These checks tell you how fresh the numbers are and whether the model had to infer too much."
@@ -287,6 +414,108 @@ export function StockPage() {
         </Panel>
 
         <Panel
+          title="Uncertainty Transparency"
+          eyebrow="What The Model Knows"
+          subtitle="This separates strong observed evidence from gaps, stale inputs, or inferred signals that should temper conviction."
+        >
+          <div className="triple-columns">
+            <div>
+              <h3>What the model knows</h3>
+              {modelKnows.length > 0 ? (
+                <ul className="bullet-list">
+                  {modelKnows.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-card">
+                  <strong>Limited positive evidence</strong>
+                  <p>The model does not have many strong confirmed drivers right now.</p>
+                </div>
+              )}
+            </div>
+            <div>
+              <h3>What the model does not know</h3>
+              {modelUnknowns.length > 0 ? (
+                <ul className="bullet-list">
+                  {modelUnknowns.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="text-card">
+                  <strong>No major blind spots flagged</strong>
+                  <p>Current coverage and freshness checks do not show a large missing-information penalty.</p>
+                </div>
+              )}
+            </div>
+            <div>
+              <h3>Suggested sizing range</h3>
+              <ul className="bullet-list">
+                <li>
+                  Weight: {Math.round((scorecard.allocation.suggestedWeightRange?.[0] ?? scorecard.allocation.suggestedWeight) * 1000) / 10}
+                  % to {Math.round((scorecard.allocation.suggestedWeightRange?.[1] ?? scorecard.allocation.suggestedWeight) * 1000) / 10}%
+                </li>
+                <li>
+                  Dollars: {formatCompactCurrency(scorecard.allocation.suggestedDollarRange?.[0] ?? scorecard.allocation.suggestedDollars)} to{' '}
+                  {formatCompactCurrency(scorecard.allocation.suggestedDollarRange?.[1] ?? scorecard.allocation.suggestedDollars)}
+                </li>
+                <li>Reserve after trade: {formatCurrency(scorecard.allocation.reserveAfterTrade)}</li>
+              </ul>
+            </div>
+          </div>
+        </Panel>
+
+        <Panel
+          title="Freshness Hierarchy"
+          eyebrow="Data Layers"
+          subtitle="Price freshness is only one layer. Fundamentals, macro context, validation, and the model snapshot update on different cadences."
+        >
+          <div className="summary-list summary-list--compact">
+            {[
+              {
+                label: 'Quote',
+                age: scorecard.freshness.quoteFreshnessDays,
+                status: scorecard.freshness.quoteStatus,
+                asOf: scorecard.freshness.quoteAsOf,
+              },
+              {
+                label: 'Fundamentals',
+                age: scorecard.freshness.fundamentalsFreshnessDays,
+                status: scorecard.freshness.fundamentalsStatus,
+                asOf: scorecard.freshness.fundamentalsAsOf,
+              },
+              {
+                label: 'Macro',
+                age: scorecard.freshness.macroFreshnessDays,
+                status: scorecard.freshness.macroStatus ?? 'aging',
+                asOf: scorecard.freshness.macroAsOf,
+              },
+              {
+                label: 'Validation',
+                age: scorecard.freshness.validationFreshnessDays,
+                status: scorecard.freshness.validationStatus ?? 'aging',
+                asOf: scorecard.freshness.validationAsOf,
+              },
+              {
+                label: 'Model snapshot',
+                age: scorecard.freshness.modelFreshnessDays,
+                status: scorecard.freshness.modelStatus,
+                asOf: scorecard.freshness.modelAsOf,
+              },
+            ].map((item) => (
+              <div key={item.label} className="summary-list__item">
+                <div>
+                  <strong>{item.label}</strong>
+                  <p className="summary-list__note">{item.asOf ?? 'Not available'}</p>
+                </div>
+                <Tag tone={toneForFreshness(item.status)}>{freshnessText(item.age, item.status)}</Tag>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel
           id="stock-scenarios"
           title="Expected Return Scenarios"
           eyebrow="Range Of Outcomes"
@@ -304,6 +533,45 @@ export function StockPage() {
               <span key={`${scenario.horizon}-dd`}>{formatPercent(scenario.probabilityDrawdown * 100)}</span>,
             ])}
           />
+        </Panel>
+
+        <Panel
+          title="Recommendation Change Log"
+          eyebrow="What Changed"
+          subtitle={scorecard.recommendationChange.summary}
+        >
+          <div className="mini-stack">
+            <ScorePill
+              label="Current action"
+              score={scorecard.action}
+              tone={toneForAction(scorecard.action)}
+            />
+            <ScorePill
+              label="Previous action"
+              score={scorecard.recommendationChange.previousAction}
+              tone={toneForAction(scorecard.recommendationChange.previousAction)}
+            />
+            <ScorePill
+              label="Composite delta"
+              score={`${scorecard.recommendationChange.compositeDelta > 0 ? '+' : ''}${scorecard.recommendationChange.compositeDelta}`}
+              tone={recommendationChangeTone(scorecard)}
+            />
+            <ScorePill
+              label="Risk delta"
+              score={`${scorecard.recommendationChange.riskDelta > 0 ? '+' : ''}${scorecard.recommendationChange.riskDelta}`}
+              tone={scorecard.recommendationChange.riskDelta <= 0 ? 'positive' : 'negative'}
+            />
+            <ScorePill
+              label="Downside delta"
+              score={`${scorecard.recommendationChange.downsideDelta > 0 ? '+' : ''}${scorecard.recommendationChange.downsideDelta}%`}
+              tone={scorecard.recommendationChange.downsideDelta <= 0 ? 'positive' : 'negative'}
+            />
+          </div>
+          <ul className="bullet-list">
+            {scorecard.recommendationChange.factorMoves.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
         </Panel>
 
         <Panel
@@ -340,6 +608,42 @@ export function StockPage() {
               </ul>
             </div>
           </div>
+        </Panel>
+
+        <Panel
+          title="Signal Integrity"
+          eyebrow="Anti Double-Count"
+          subtitle="The engine trims confidence when several inputs are just repeating the same story."
+        >
+          <div className="mini-stack">
+            <ScorePill
+              label="Redundancy penalty"
+              score={scorecard.signalAudit.redundancyPenalty}
+              tone={scorecard.signalAudit.redundancyPenalty > 2 ? 'warning' : 'positive'}
+            />
+            <ScorePill
+              label="Price crowding"
+              score={scorecard.signalAudit.priceSignalCrowding}
+              tone={scorecard.signalAudit.priceSignalCrowding > 30 ? 'warning' : 'neutral'}
+            />
+            <ScorePill
+              label="Fragility crowding"
+              score={scorecard.signalAudit.fragilityCrowding}
+              tone={scorecard.signalAudit.fragilityCrowding > 35 ? 'warning' : 'neutral'}
+            />
+          </div>
+          {scorecard.signalAudit.notes.length > 0 ? (
+            <ul className="bullet-list">
+              {scorecard.signalAudit.notes.map((note) => (
+                <li key={note}>{note}</li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-card">
+              <strong>No major signal crowding detected</strong>
+              <p>The current score is not leaning too heavily on one repeated signal family.</p>
+            </div>
+          )}
         </Panel>
 
         <Panel id="stock-trend" title="Trend Context" eyebrow="Context" subtitle="These charts help you see the recent path of price and model score.">

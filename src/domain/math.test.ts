@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clamp, round, average, sum } from './math';
+import { average, clamp, correlationCoefficient, round, sum } from './math';
 
 describe('clamp', () => {
   it('clamps value within range', () => {
@@ -42,5 +42,20 @@ describe('average', () => {
 describe('sum', () => {
   it('computes sum', () => {
     expect(sum([1, 2, 3, 4, 5])).toBe(15);
+  });
+});
+
+describe('correlationCoefficient', () => {
+  it('returns strong positive correlation for aligned series', () => {
+    expect(correlationCoefficient([1, 2, 3], [2, 4, 6])).toBe(1);
+  });
+
+  it('returns strong negative correlation for inverse series', () => {
+    expect(correlationCoefficient([1, 2, 3], [6, 4, 2])).toBe(-1);
+  });
+
+  it('returns 0 for invalid inputs', () => {
+    expect(correlationCoefficient([1], [1])).toBe(0);
+    expect(correlationCoefficient([1, 2], [1])).toBe(0);
   });
 });

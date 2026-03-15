@@ -1,17 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { buildCommandCenterModel } from '../domain/engine';
+/* eslint-disable react-refresh/only-export-components */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildCommandCenterModel, buildRecommendationRunSnapshot } from '../domain/engine';
+import {
+  buildDecisionAuditEntries,
+  mergeDecisionAuditLog,
+  mergeRecommendationHistory,
+} from '../domain/recommendationHistory';
 import { currentDataset as baseDataset } from '../data/currentDataset';
 import type {
+  ActionLabel,
   AppTheme,
+  ConfidenceBand,
+  DecisionAuditRecord,
   EditableUserSettings,
   Holding,
   JournalEntry,
   LedgerBaseline,
   MockDataset,
+  OutcomeHorizon,
   PortfolioHistoryGranularity,
   PortfolioHistorySnapshot,
   PortfolioHistoryStore,
   PortfolioTransaction,
+  RecommendationOutcome,
+  RecommendationRecord,
+  RecommendationRunSnapshot,
+  RiskBucket,
   SecuritySeed,
   StrategyStyle,
   StrategyWeights,
@@ -47,6 +61,8 @@ interface PersistedState {
   theme: AppTheme;
   journal: JournalEntry[];
   watchlists: Watchlist[];
+  recommendationHistory: RecommendationRunSnapshot[];
+  decisionAuditLog: DecisionAuditRecord[];
 }
 
 const storageKey = 'investment-center-user-portfolio-v1';
@@ -56,7 +72,22 @@ const intradayBucketMinutes = 15;
 const intradayRetentionDays = 14;
 const dailyRetentionDays = 400;
 const availableRiskTolerances = ['low', 'moderate', 'moderate-aggressive', 'aggressive'] as const;
-const availableThemes = ['emerald', 'cobalt', 'amber', 'rose', 'graphite'] as const;
+const availableThemes = [
+  'emerald',
+  'cobalt',
+  'amber',
+  'rose',
+  'graphite',
+  'violet',
+  'teal',
+  'mint',
+  'orange',
+  'indigo',
+  'cyan',
+  'lime',
+  'fuchsia',
+  'sky',
+] as const;
 const availableMarketCaps = ['micro', 'small', 'mid', 'large', 'mega'] as const;
 const availableSecurityTypes = ['stock', 'adr', 'reit'] as const;
 
@@ -99,6 +130,8 @@ function defaultState(): PersistedState {
     theme: defaultTheme(),
     journal: [],
     watchlists: [],
+    recommendationHistory: [],
+    decisionAuditLog: [],
   };
 }
 
@@ -324,6 +357,27 @@ function normalizeLedgerBaseline(input: unknown): LedgerBaseline | null {
   };
 }
 
+function ledgerBaselinesEqual(left: LedgerBaseline | null, right: LedgerBaseline) {
+  if (!left) {
+    return false;
+  }
+
+  if (left.investableCash !== right.investableCash || left.holdings.length !== right.holdings.length) {
+    return false;
+  }
+
+  return left.holdings.every((holding, index) => {
+    const candidate = right.holdings[index];
+
+    return (
+      holding.symbol === candidate.symbol &&
+      holding.shares === candidate.shares &&
+      holding.costBasis === candidate.costBasis &&
+      holding.entryDate === candidate.entryDate
+    );
+  });
+}
+
 function normalizeJournalEntry(input: unknown): JournalEntry | null {
   if (!input || typeof input !== 'object') {
     return null;
@@ -373,19 +427,149 @@ function normalizeWatchlist(input: unknown): Watchlist | null {
   };
 }
 
-function loadPersistedState(): PersistedState {
-  if (typeof window === 'undefined') {
-    return defaultState();
+function normalizeRecommendationOutcome(
+  horizon: OutcomeHorizon,
+  input: unknown,
+): RecommendationOutcome | null {
+  if (!input || typeof input !== 'object') {
+    return null;
   }
 
-  const raw = window.localStorage.getItem(storageKey);
+  const candidate = input as Partial<RecommendationOutcome>;
+  const measuredAt = String(candidate.measuredAt ?? '').trim();
 
+  if (!measuredAt) {
+    return null;
+  }
+
+  return {
+    horizon,
+    measuredAt,
+    forwardReturn: Number(candidate.forwardReturn ?? 0) || 0,
+    benchmarkRelativeReturn: Number(candidate.benchmarkRelativeReturn ?? 0) || 0,
+    hit: Boolean(candidate.hit),
+    outperformed: Boolean(candidate.outperformed),
+  };
+}
+
+function normalizeRecommendationRecord(input: unknown): RecommendationRecord | null {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+
+  const candidate = input as Partial<RecommendationRecord>;
+  const symbol = normalizeSymbol(String(candidate.symbol ?? ''));
+  const action = String(candidate.action ?? '').trim() as ActionLabel;
+  const confidenceBand = String(candidate.confidenceBand ?? '').trim() as ConfidenceBand;
+  const riskBucket = String(candidate.riskBucket ?? '').trim() as RiskBucket;
+
+  if (!symbol || !action || !confidenceBand || !riskBucket) {
+    return null;
+  }
+
+  const outcomesSource =
+    candidate.outcomes && typeof candidate.outcomes === 'object'
+      ? (candidate.outcomes as Partial<Record<OutcomeHorizon, RecommendationOutcome>>)
+      : {};
+  const outcomeEntries = (['1W', '1M', '3M', '6M', '12M'] as OutcomeHorizon[])
+    .map((horizon) => [horizon, normalizeRecommendationOutcome(horizon, outcomesSource[horizon])] as const)
+    .filter((entry): entry is readonly [OutcomeHorizon, RecommendationOutcome] => entry[1] !== null);
+
+  return {
+    symbol,
+    sector: String(candidate.sector ?? '').trim() || undefined,
+    action,
+    composite: Number(candidate.composite ?? 0) || 0,
+    opportunityScore: Number(candidate.opportunityScore ?? 0) || 0,
+    timingScore: Number(candidate.timingScore ?? 0) || 0,
+    portfolioFitScore: Number(candidate.portfolioFitScore ?? 0) || 0,
+    confidence: Number(candidate.confidence ?? 0) || 0,
+    dataQualityScore: Number(candidate.dataQualityScore ?? 0) || 0,
+    riskOverall: Number(candidate.riskOverall ?? 0) || 0,
+    riskBucket,
+    expected12m: Number(candidate.expected12m ?? 0) || 0,
+    confidenceBand,
+    priceAtRun: candidate.priceAtRun == null ? undefined : Number(candidate.priceAtRun),
+    expectedReturns: Array.isArray(candidate.expectedReturns) ? candidate.expectedReturns : undefined,
+    suggestedWeightRange:
+      Array.isArray(candidate.suggestedWeightRange) && candidate.suggestedWeightRange.length === 2
+        ? [Number(candidate.suggestedWeightRange[0]) || 0, Number(candidate.suggestedWeightRange[1]) || 0]
+        : undefined,
+    suggestedDollarRange:
+      Array.isArray(candidate.suggestedDollarRange) && candidate.suggestedDollarRange.length === 2
+        ? [Number(candidate.suggestedDollarRange[0]) || 0, Number(candidate.suggestedDollarRange[1]) || 0]
+        : undefined,
+    reasonTags: normalizeStringList(candidate.reasonTags),
+    unknowns: normalizeStringList(candidate.unknowns),
+    outcomes: outcomeEntries.length > 0 ? Object.fromEntries(outcomeEntries) : undefined,
+  };
+}
+
+function normalizeRecommendationRun(input: unknown): RecommendationRunSnapshot | null {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+
+  const candidate = input as Partial<RecommendationRunSnapshot>;
+  const runAt = String(candidate.runAt ?? '').trim();
+  const datasetAsOf = String(candidate.datasetAsOf ?? '').trim();
+  const regimeKey = String(candidate.regimeKey ?? '').trim() as RecommendationRunSnapshot['regimeKey'];
+
+  if (!runAt || !datasetAsOf || !regimeKey) {
+    return null;
+  }
+
+  return {
+    runAt,
+    datasetAsOf,
+    regimeKey,
+    deploymentTilt: Number(candidate.deploymentTilt ?? 0) || 0,
+    portfolioValue: Number(candidate.portfolioValue ?? 0) || 0,
+    benchmarkPrice: candidate.benchmarkPrice == null ? undefined : Number(candidate.benchmarkPrice),
+    records: Array.isArray(candidate.records)
+      ? candidate.records
+          .map(normalizeRecommendationRecord)
+          .filter((record): record is RecommendationRecord => record !== null)
+      : [],
+  };
+}
+
+function normalizeDecisionAuditRecord(input: unknown): DecisionAuditRecord | null {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+
+  const candidate = input as Partial<DecisionAuditRecord>;
+  const id = String(candidate.id ?? '').trim();
+  const date = String(candidate.date ?? '').trim();
+  const symbol = normalizeSymbol(String(candidate.symbol ?? ''));
+  const oldAction = String(candidate.oldAction ?? '').trim() as ActionLabel;
+  const newAction = String(candidate.newAction ?? '').trim() as ActionLabel;
+
+  if (!id || !date || !symbol || !oldAction || !newAction) {
+    return null;
+  }
+
+  return {
+    id,
+    date,
+    symbol,
+    oldAction,
+    newAction,
+    reason: String(candidate.reason ?? '').trim(),
+  };
+}
+
+export function parsePersistedState(raw: string | null): PersistedState {
   if (!raw) {
     return defaultState();
   }
 
   try {
     const parsed = JSON.parse(raw) as PersistedState;
+    const hasPersistedJournal = Object.prototype.hasOwnProperty.call(parsed, 'journal');
+    const hasPersistedWatchlists = Object.prototype.hasOwnProperty.call(parsed, 'watchlists');
+
     return {
       investableCash: parsed.investableCash ?? 0,
       holdings: Array.isArray(parsed.holdings)
@@ -397,18 +581,36 @@ function loadPersistedState(): PersistedState {
       ledgerBaseline: normalizeLedgerBaseline(parsed.ledgerBaseline),
       userSettings: normalizeUserSettings(parsed.userSettings),
       theme: normalizeTheme(parsed.theme),
-      journal:
-        Array.isArray(parsed.journal) && parsed.journal.length > 0
-          ? parsed.journal.map(normalizeJournalEntry).filter((e): e is JournalEntry => e !== null)
-          : (baseDataset.journal ?? []).map(normalizeJournalEntry).filter((e): e is JournalEntry => e !== null),
-      watchlists:
-        Array.isArray(parsed.watchlists) && parsed.watchlists.length > 0
-          ? parsed.watchlists.map(normalizeWatchlist).filter((w): w is Watchlist => w !== null)
-          : (baseDataset.watchlists ?? []).map(normalizeWatchlist).filter((w): w is Watchlist => w !== null),
+      journal: hasPersistedJournal && Array.isArray(parsed.journal)
+        ? parsed.journal.map(normalizeJournalEntry).filter((entry): entry is JournalEntry => entry !== null)
+        : (baseDataset.journal ?? []).map(normalizeJournalEntry).filter((entry): entry is JournalEntry => entry !== null),
+      watchlists: hasPersistedWatchlists && Array.isArray(parsed.watchlists)
+        ? parsed.watchlists.map(normalizeWatchlist).filter((watchlist): watchlist is Watchlist => watchlist !== null)
+        : (baseDataset.watchlists ?? []).map(normalizeWatchlist).filter((watchlist): watchlist is Watchlist => watchlist !== null),
+      recommendationHistory: Array.isArray(parsed.recommendationHistory)
+        ? parsed.recommendationHistory
+            .map(normalizeRecommendationRun)
+            .filter((run): run is RecommendationRunSnapshot => run !== null)
+            .slice(-50)
+        : [],
+      decisionAuditLog: Array.isArray(parsed.decisionAuditLog)
+        ? parsed.decisionAuditLog
+            .map(normalizeDecisionAuditRecord)
+            .filter((entry): entry is DecisionAuditRecord => entry !== null)
+            .slice(-250)
+        : [],
     };
   } catch {
     return defaultState();
   }
+}
+
+function loadPersistedState(): PersistedState {
+  if (typeof window === 'undefined') {
+    return defaultState();
+  }
+
+  return parsePersistedState(window.localStorage.getItem(storageKey));
 }
 
 function persistState(state: PersistedState) {
@@ -447,6 +649,20 @@ function persistPortfolioHistory(history: PortfolioHistoryStore) {
   }
 
   window.localStorage.setItem(historyStorageKey, JSON.stringify(history));
+}
+
+export function resolveLedgerBaselineForTransactions(
+  current: LedgerBaseline | null,
+  holdings: Holding[],
+  investableCash: number,
+  transactionCount: number,
+) {
+  if (transactionCount === 0) {
+    return current;
+  }
+
+  const nextBaseline = createLedgerBaseline(holdings, investableCash);
+  return ledgerBaselinesEqual(current, nextBaseline) ? current : nextBaseline;
 }
 
 function pruneSnapshots(
@@ -554,9 +770,17 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
   const [symbolDirectoryError, setSymbolDirectoryError] = useState<string | null>(null);
   const [liveSecurities, setLiveSecurities] = useState<Record<string, SecuritySeed>>({});
   const [liveQuotes, setLiveQuotes] = useState<Record<string, LiveQuoteSnapshot>>({});
+  const [trackedSymbols, setTrackedSymbols] = useState<string[]>([]);
   const [loadingSymbols, setLoadingSymbols] = useState<string[]>([]);
   const [quoteErrors, setQuoteErrors] = useState<Record<string, string>>({});
   const [lastQuoteRefreshAt, setLastQuoteRefreshAt] = useState<string | null>(null);
+  const [recommendationHistory, setRecommendationHistory] = useState<
+    RecommendationRunSnapshot[]
+  >(initial.recommendationHistory);
+  const [decisionAuditLog, setDecisionAuditLog] = useState<DecisionAuditRecord[]>(
+    initial.decisionAuditLog,
+  );
+  const rateLimitToastShownRef = useRef(false);
 
   const accounting = useMemo(() => {
     if (transactions.length === 0) {
@@ -601,9 +825,11 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       userSettings,
       journal,
       watchlists,
+      recommendationHistory,
+      decisionAuditLog,
       theme,
     });
-  }, [baseHoldings, baseInvestableCash, journal, ledgerBaseline, theme, transactions, userSettings, watchlists]);
+  }, [baseHoldings, baseInvestableCash, decisionAuditLog, journal, ledgerBaseline, recommendationHistory, theme, transactions, userSettings, watchlists]);
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -612,6 +838,17 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
 
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    setLedgerBaseline((current) =>
+      resolveLedgerBaselineForTransactions(
+        current,
+        baseHoldings,
+        baseInvestableCash,
+        transactions.length,
+      ),
+    );
+  }, [baseHoldings, baseInvestableCash, transactions.length]);
 
   useEffect(() => {
     persistPortfolioHistory(portfolioHistory);
@@ -698,7 +935,7 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
   }, []);
 
   useEffect(() => {
-    const activeSymbols = new Set(holdingSymbols);
+    const activeSymbols = new Set([...holdingSymbols, ...trackedSymbols]);
 
     setLiveSecurities((current) => {
       return Object.fromEntries(
@@ -711,15 +948,19 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       );
     });
     setLoadingSymbols((current) => current.filter((symbol) => activeSymbols.has(symbol)));
-  }, [holdingSymbolsKey, holdingSymbols]);
+  }, [holdingSymbolsKey, holdingSymbols, trackedSymbols]);
 
   const buildQuoteFallbackSecurity = useCallback(
     async (symbol: string, currentLiveSecurities: Record<string, SecuritySeed>) => {
-      const quotes = await provider.fetchQuoteSnapshots([symbol]);
+      const { quotes, errors, rateLimited } = await provider.fetchQuoteBatch([symbol]);
       const quote = quotes[symbol];
 
       if (!quote) {
-        throw new Error('No live quote data returned for symbol.');
+        if (rateLimited) {
+          throw new YahooRateLimitError();
+        }
+
+        throw new Error(errors[symbol] ?? 'No live quote data returned for symbol.');
       }
 
       return {
@@ -733,6 +974,15 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
     [holdings, provider],
   );
 
+  const notifyRateLimit = useCallback(() => {
+    if (rateLimitToastShownRef.current) {
+      return;
+    }
+
+    addToast(new YahooRateLimitError().message, 'warning');
+    rateLimitToastShownRef.current = true;
+  }, [addToast]);
+
   const fetchFullSymbol = useCallback(
     async (inputSymbol: string) => {
       const symbol = normalizeSymbol(inputSymbol);
@@ -741,13 +991,19 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
         return;
       }
 
+      setTrackedSymbols((current) => [...new Set([...current, symbol])]);
       setLoadingSymbols((current) => [...new Set([...current, symbol])]);
 
       try {
         const seed = fallbackSecurityForSymbol(symbol, holdings, liveSecurities);
         const record = await provider.fetchSecurityRecord(seed);
-        const quotes = await provider.fetchQuoteSnapshots([symbol]);
-        const quote = quotes[symbol];
+        const quoteBatch = await provider.fetchQuoteBatch([symbol]);
+        const quote = quoteBatch.quotes[symbol];
+        if (quoteBatch.rateLimited) {
+          notifyRateLimit();
+        } else if (quote) {
+          rateLimitToastShownRef.current = false;
+        }
 
         const baseSeed = baseDataset.securities.find((security) => security.symbol === symbol);
         const merged = record.priceSnapshot
@@ -780,10 +1036,18 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
         setLastQuoteRefreshAt(new Date().toISOString());
         setQuoteErrors((current) => {
           const next = { ...current };
-          delete next[symbol];
+          if (quoteBatch.errors[symbol]) {
+            next[symbol] = quoteBatch.errors[symbol];
+          } else {
+            delete next[symbol];
+          }
           return next;
         });
       } catch (error) {
+        if (error instanceof YahooRateLimitError) {
+          notifyRateLimit();
+        }
+
         try {
           const quoteBacked = await buildQuoteFallbackSecurity(symbol, liveSecurities);
 
@@ -796,26 +1060,34 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
             [symbol]: quoteBacked.quote,
           }));
           setLastQuoteRefreshAt(new Date().toISOString());
+          rateLimitToastShownRef.current = false;
           setQuoteErrors((current) => {
             const next = { ...current };
             delete next[symbol];
             return next;
           });
         } catch (quoteError) {
+          if (quoteError instanceof YahooRateLimitError) {
+            notifyRateLimit();
+          }
+
           setLiveSecurities((current) => ({
             ...current,
             [symbol]: fallbackSecurityForSymbol(symbol, holdings, current),
           }));
           setQuoteErrors((current) => ({
             ...current,
-            [symbol]: (quoteError as Error).message || (error as Error).message,
+            [symbol]:
+              (quoteError as Error).message ||
+              (error as Error).message ||
+              'Yahoo quote refresh failed.',
           }));
         }
       } finally {
         setLoadingSymbols((current) => current.filter((item) => item !== symbol));
       }
     },
-    [buildQuoteFallbackSecurity, holdings, liveSecurities, provider],
+    [buildQuoteFallbackSecurity, holdings, liveSecurities, notifyRateLimit, provider],
   );
 
   useEffect(() => {
@@ -832,7 +1104,7 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
     }
 
     try {
-      const quotes = await provider.fetchQuoteSnapshots(holdingSymbols);
+      const { quotes, errors, rateLimited } = await provider.fetchQuoteBatch(holdingSymbols);
 
       setLiveQuotes((current) => ({
         ...current,
@@ -863,13 +1135,23 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
         holdingSymbols.forEach((symbol) => {
           if (quotes[symbol]) {
             delete next[symbol];
+          } else if (errors[symbol]) {
+            next[symbol] = errors[symbol];
+          } else if (!next[symbol]) {
+            next[symbol] = 'No live quote data returned for symbol.';
           }
         });
         return next;
       });
+
+      if (rateLimited) {
+        notifyRateLimit();
+      } else if (Object.keys(quotes).length > 0) {
+        rateLimitToastShownRef.current = false;
+      }
     } catch (error) {
       if (error instanceof YahooRateLimitError) {
-        addToast(error.message, 'warning');
+        notifyRateLimit();
       }
       setQuoteErrors((current) => {
         const next = { ...current };
@@ -881,7 +1163,7 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
         return next;
       });
     }
-  }, [addToast, holdingSymbols, holdings, provider]);
+  }, [holdingSymbols, holdings, notifyRateLimit, provider]);
 
   useEffect(() => {
     if (holdingSymbols.length === 0) {
@@ -911,10 +1193,9 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
     const runtimeWatchlists = holdingsWatchlist
       ? [holdingsWatchlist, ...watchlists]
       : watchlists;
-    const liveUniverse = Object.values(liveSecurities).filter((security) =>
-      holdingSymbols.includes(security.symbol),
-    );
-    const provisionalUniverse = holdingSymbols
+    const liveUniverse = Object.values(liveSecurities);
+    const trackedUniverseSymbols = [...new Set([...holdingSymbols, ...trackedSymbols])];
+    const provisionalUniverse = trackedUniverseSymbols
       .filter(
         (symbol) =>
           !baseDataset.securities.some((security) => security.symbol === symbol) &&
@@ -966,9 +1247,36 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
           : 'No user-added runtime holdings loaded.',
       ],
     };
-  }, [baseHoldings, baseInvestableCash, holdingSymbols, holdings, investableCash, journal, ledgerBaseline, liveSecurities, transactions, userSettings, watchlists]);
+  }, [
+    baseHoldings,
+    baseInvestableCash,
+    holdingSymbols,
+    holdings,
+    investableCash,
+    journal,
+    ledgerBaseline,
+    liveSecurities,
+    trackedSymbols,
+    transactions,
+    userSettings,
+    watchlists,
+  ]);
 
   const model = useMemo(() => buildCommandCenterModel(dataset), [dataset]);
+
+  useEffect(() => {
+    const snapshot = buildRecommendationRunSnapshot(model);
+    setRecommendationHistory((prev) => {
+      const next = mergeRecommendationHistory(prev, snapshot);
+      const previousRun = next.length > 1 ? next[next.length - 2] : undefined;
+      const auditEntries = buildDecisionAuditEntries(previousRun, snapshot);
+      if (auditEntries.length > 0) {
+        setDecisionAuditLog((current) => mergeDecisionAuditLog(current, auditEntries));
+      }
+
+      return next;
+    });
+  }, [model]);
 
   useEffect(() => {
     const holdingsValue = model.holdings.reduce((total, holding) => total + holding.marketValue, 0);
@@ -1213,7 +1521,8 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
           : w,
       ),
     );
-  }, []);
+    addToast(`Added ${normalized} to watchlist`, 'success');
+  }, [addToast]);
 
   const removeSymbolFromWatchlist = useCallback((watchlistId: string, symbol: string) => {
     const normalized = normalizeSymbol(symbol);
@@ -1266,6 +1575,8 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       livePriceSymbols: Object.keys(liveQuotes),
       lastQuoteRefreshAt,
       portfolioHistory,
+      recommendationHistory,
+      decisionAuditLog,
     }),
     [
       addHolding,
@@ -1284,6 +1595,8 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       portfolioHistory,
       quoteErrors,
       liveQuotes,
+      recommendationHistory,
+      decisionAuditLog,
       removeHolding,
       removeJournalEntry,
       removeSymbolFromWatchlist,

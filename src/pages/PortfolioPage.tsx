@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2 } from 'lucide-react';
+import { BriefcaseBusiness, Layers, ListOrdered, Plus, Trash2 } from 'lucide-react';
 import {
   Panel,
   MetricCard,
@@ -19,6 +19,7 @@ import {
   formatPercent,
   formatPrice,
 } from './../lib/format';
+import { useStoredState } from './../hooks/useStoredState';
 import { downloadBlob, exportHoldingsCsv, exportTransactionsCsv } from './../lib/exportPortfolio';
 import { actionHelp } from './../lib/helpText';
 import { normalizeSymbol } from './../lib/symbols';
@@ -30,6 +31,8 @@ import {
   simpleActionText,
   symbolMatches,
   toneForAction,
+  toneForConfidenceBand,
+  toneForThesisHealth,
   transactionAmountLabel,
   transactionIsValid,
   transactionNeedsAmount,
@@ -71,6 +74,8 @@ export function PortfolioPage() {
     journalInvalidation: '',
   });
   const [transactionDraft, setTransactionDraft] = useState(defaultTransactionDraft);
+  const [holdingFilter, setHoldingFilter] = useStoredState('ic-portfolio-holding-filter', '');
+  const [transactionKindFilter, setTransactionKindFilter] = useStoredState('ic-portfolio-transaction-filter', 'All');
   const normalizedFormSymbol = normalizeSymbol(form.symbol);
   const formMatches = symbolMatches(symbolDirectory, form.symbol);
   const selectedDirectoryEntry =
@@ -86,16 +91,27 @@ export function PortfolioPage() {
     0,
   );
   const unrealizedPnL = investedValue - costBasisValue;
-  const pairRows = dataset.holdings
-    .flatMap((left, index) =>
-      dataset.holdings.slice(index + 1).map((right) => [
-        `${left.symbol} / ${right.symbol}`,
-        `${compareOverlap(model, left.symbol, right.symbol)}/100`,
-      ]),
-    )
-    .slice(0, 6);
+  const overlapSymbols = dataset.holdings.map((holding) => holding.symbol);
+  const overlapRows = overlapSymbols.map((rowSymbol) => [
+    <strong key={`${rowSymbol}-label`}>{rowSymbol}</strong>,
+    ...overlapSymbols.map((columnSymbol) =>
+      rowSymbol === columnSymbol ? (
+        <span key={`${rowSymbol}-${columnSymbol}`}>-</span>
+      ) : (
+        <span key={`${rowSymbol}-${columnSymbol}`}>
+          {compareOverlap(model, rowSymbol, columnSymbol)}/100
+        </span>
+      ),
+    ),
+  ]);
   const orderedTransactions = [...transactions].sort(
     (left, right) => right.date.localeCompare(left.date) || right.id.localeCompare(left.id),
+  );
+  const filteredHoldings = model.holdings.filter((holding) =>
+    holding.symbol.toLowerCase().includes(holdingFilter.trim().toLowerCase()),
+  );
+  const filteredTransactions = orderedTransactions.filter((transaction) =>
+    transactionKindFilter === 'All' ? true : transaction.kind === transactionKindFilter,
   );
 
   useEffect(() => {
@@ -146,6 +162,9 @@ export function PortfolioPage() {
 
       {dataset.holdings.length === 0 ? (
         <section className="empty-state empty-state--compact">
+          <div className="empty-state__icon" aria-hidden="true">
+            <BriefcaseBusiness size={36} strokeWidth={1.25} />
+          </div>
           <div className="empty-state__eyebrow">No holdings yet</div>
           <h2>Add your first stock to activate portfolio analytics.</h2>
           <p>Enter a ticker, the number of shares you own, and your average buy price below.</p>
@@ -249,7 +268,7 @@ export function PortfolioPage() {
                   <strong>{selectedDirectoryEntry?.name ?? normalizedFormSymbol}</strong>
                   <p>
                     {selectedDirectoryEntry
-                      ? `${selectedDirectoryEntry.exchange} • ${selectedDirectoryEntry.universes.join(' + ')}`
+                      ? `${selectedDirectoryEntry.exchange} - ${selectedDirectoryEntry.universes.join(' + ')}`
                       : 'Custom symbol'}
                   </p>
                 </div>
@@ -379,6 +398,7 @@ export function PortfolioPage() {
           title="Current Holdings"
           eyebrow="Live Book"
           subtitle="Current price, market value, gain/loss, and the system's view on each holding."
+          helpText="Use this as your live book: what you own, what it is worth, and which positions may need trimming or another look."
           action={
             <button
               type="button"
@@ -401,9 +421,20 @@ export function PortfolioPage() {
             </button>
           }
         >
+          <div className="filters filters--compact-row">
+            <label>
+              Find holding
+              <input
+                type="text"
+                value={holdingFilter}
+                onChange={(event) => setHoldingFilter(event.target.value.toUpperCase())}
+                placeholder="AAPL"
+              />
+            </label>
+          </div>
           <Table
-            columns={['Ticker', 'Shares', 'Last Price', 'Cost Basis', 'Market Value', 'Unrealized P/L', 'Portfolio Weight', 'Risk', 'System View', 'Live Data', '']}
-            rows={model.holdings.map((holding) => [
+            columns={['Ticker', 'Shares', 'Last Price', 'Cost Basis', 'Market Value', 'Unrealized P/L', 'Portfolio Weight', 'Risk', 'Thesis', 'System View', 'Live Data', '']}
+            rows={filteredHoldings.map((holding) => [
               <Link key={`${holding.symbol}-holding`} to={`/stocks/${holding.symbol}`} className="symbol-link">
                 {holding.symbol}
               </Link>,
@@ -426,6 +457,10 @@ export function PortfolioPage() {
               </span>,
               <span key={`${holding.symbol}-weight`}>{formatPercent(holding.weight)}</span>,
               <span key={`${holding.symbol}-risk`}>{holding.riskContribution}</span>,
+              <div key={`${holding.symbol}-thesis`} className="mini-stack">
+                <Tag tone={toneForThesisHealth(holding.thesisHealth)}>{holding.thesisHealth}</Tag>
+                <Tag tone={toneForConfidenceBand(holding.confidenceBand)}>{holding.confidenceBand}</Tag>
+              </div>,
               <Tag
                 key={`${holding.symbol}-action`}
                 tone={toneForAction(holding.action)}
@@ -458,7 +493,7 @@ export function PortfolioPage() {
         </Panel>
 
         <Panel
-          title="Rebalance and Trim"
+          title="Rebalance and Exit Signals"
           eyebrow="Portfolio Actions"
           subtitle="These are the holdings that need attention because they may be too large or too risky."
         >
@@ -467,10 +502,13 @@ export function PortfolioPage() {
               <li key={issue}>{issue}</li>
             ))}
             {model.holdings
-              .filter((holding) => holding.action === 'Trim')
+              .filter((holding) =>
+                ['Trim', 'Sell', 'Rotate', 'De-risk', 'Take profit'].includes(holding.action),
+              )
               .map((holding) => (
                 <li key={`${holding.symbol}-trim`}>
-                  Trim {holding.symbol}: current weight {holding.weight}% with risk contribution {holding.riskContribution}.
+                  {holding.action} {holding.symbol}: {holding.sellDiscipline ?? 'portfolio discipline issue'}. Current weight {holding.weight}% with risk contribution {holding.riskContribution}.
+                  {holding.replacementIdea ? ` ${holding.replacementIdea}` : ''}
                 </li>
               ))}
           </ul>
@@ -522,6 +560,7 @@ export function PortfolioPage() {
             <label>
               Event type
               <select
+                className="filter-select"
                 value={transactionDraft.kind}
                 onChange={(event) =>
                   setTransactionDraft((current) => ({
@@ -731,9 +770,13 @@ export function PortfolioPage() {
               ? 'Newest items are shown first. Delete a row if you need to correct a mistake.'
               : 'Once you record activity here, the account history and realized profit math become much more accurate.'
           }
+          helpText="This is your transaction log. Use it to correct mistakes and keep the account history grounded in real events."
         >
           {orderedTransactions.length === 0 ? (
             <div className="empty-state empty-state--compact">
+              <div className="empty-state__icon" aria-hidden="true">
+                <ListOrdered size={36} strokeWidth={1.25} />
+              </div>
               <h2>No transactions recorded yet.</h2>
               <p>
                 Start with deposits, buys, and sells. That gives the app a truer cost basis, realized P/L,
@@ -741,9 +784,29 @@ export function PortfolioPage() {
               </p>
             </div>
           ) : (
+            <>
+            <div className="filters filters--compact-row">
+              <label>
+                Event type
+                <select
+                  className="filter-select"
+                  value={transactionKindFilter}
+                  onChange={(event) => setTransactionKindFilter(event.target.value)}
+                >
+                  <option value="All">All</option>
+                  <option value="buy">Buy</option>
+                  <option value="sell">Sell</option>
+                  <option value="deposit">Deposit</option>
+                  <option value="withdrawal">Withdrawal</option>
+                  <option value="dividend">Dividend</option>
+                  <option value="split">Split</option>
+                  <option value="fee">Fee</option>
+                </select>
+              </label>
+            </div>
             <Table
               columns={['Date', 'Type', 'Symbol', 'Shares', 'Price', 'Amount', 'Note', '']}
-              rows={orderedTransactions.map((transaction) => [
+              rows={filteredTransactions.map((transaction) => [
                 <span key={`${transaction.id}-date`}>{transaction.date}</span>,
                 <span key={`${transaction.id}-kind`}>{transaction.kind}</span>,
                 <span key={`${transaction.id}-symbol`}>{transaction.symbol ?? 'Cash'}</span>,
@@ -753,10 +816,10 @@ export function PortfolioPage() {
                         minimumFractionDigits: transaction.shares % 1 === 0 ? 0 : 2,
                         maximumFractionDigits: 6,
                       })
-                    : '—'}
+                    : '-'}
                 </span>,
                 <span key={`${transaction.id}-price`}>
-                  {transaction.price != null ? formatPrice(transaction.price) : '—'}
+                  {transaction.price != null ? formatPrice(transaction.price) : '-'}
                 </span>,
                 <span key={`${transaction.id}-amount`}>
                   {transaction.amount != null
@@ -765,9 +828,9 @@ export function PortfolioPage() {
                       ? formatCurrency(transaction.price * transaction.shares)
                       : transaction.splitRatio != null
                         ? `${transaction.splitRatio}x`
-                        : '—'}
+                        : '-'}
                 </span>,
-                <span key={`${transaction.id}-note`}>{transaction.note ?? '—'}</span>,
+                <span key={`${transaction.id}-note`}>{transaction.note ?? '-'}</span>,
                 <button
                   key={`${transaction.id}-remove`}
                   type="button"
@@ -784,6 +847,7 @@ export function PortfolioPage() {
                 </button>,
               ])}
             />
+            </>
           )}
         </Panel>
       </div>
@@ -813,10 +877,20 @@ export function PortfolioPage() {
         </Panel>
 
         <Panel title="Holding Overlap" eyebrow="Correlation Proxy" subtitle="Pairwise overlap estimates derived from factor exposure and shared sector concentration.">
-          <Table
-            columns={['Pair', 'Overlap']}
-            rows={pairRows.map(([pair, overlap]) => [<span key={pair}>{pair}</span>, <span key={`${pair}-overlap`}>{overlap}</span>])}
-          />
+          {overlapSymbols.length <= 1 ? (
+            <div className="empty-state empty-state--compact">
+              <div className="empty-state__icon" aria-hidden="true">
+                <Layers size={36} strokeWidth={1.25} />
+              </div>
+              <h2>Add at least two holdings to compare overlap.</h2>
+              <p>The matrix will populate once you have more than one active position.</p>
+            </div>
+          ) : (
+            <Table
+              columns={['Symbol', ...overlapSymbols]}
+              rows={overlapRows}
+            />
+          )}
         </Panel>
       </div>
     </div>

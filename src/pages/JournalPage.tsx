@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { BookText, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   Panel,
   PageHeader,
@@ -149,6 +149,9 @@ export function JournalPage() {
 
       {journal.length === 0 ? (
         <section className="empty-state empty-state--compact">
+          <div className="empty-state__icon" aria-hidden="true">
+            <BookText size={36} strokeWidth={1.25} />
+          </div>
           <div className="empty-state__eyebrow">No entries yet</div>
           <h2>Add your first journal entry</h2>
           <p>
@@ -196,15 +199,15 @@ export function JournalPage() {
               <div className="journal-block">
                 <div>
                   <h3>Original thesis</h3>
-                  <p>{entry.userThesis || '—'}</p>
+                  <p>{entry.userThesis || '-'}</p>
                 </div>
                 <div>
                   <h3>Invalidation rule</h3>
-                  <p>{entry.invalidationRule || '—'}</p>
+                  <p>{entry.invalidationRule || '-'}</p>
                 </div>
                 <div>
                   <h3>Outcome</h3>
-                  <p>{entry.outcome || '—'}</p>
+                  <p>{entry.outcome || '-'}</p>
                 </div>
               </div>
             </Panel>
@@ -313,6 +316,7 @@ function JournalEntryForm({
       <label>
         Decision type
         <select
+          className="filter-select"
           value={form.decisionType}
           onChange={(e) => setForm((f) => ({ ...f, decisionType: e.target.value }))}
         >
@@ -366,3 +370,4 @@ function JournalEntryForm({
     </div>
   );
 }
+

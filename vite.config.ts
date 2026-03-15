@@ -34,7 +34,7 @@ async function proxyYahooRequest(
     const response = await fetch(targetUrl, {
       headers: {
         Accept: 'application/json,text/plain,*/*',
-        'User-Agent': 'InvestmentCenter/1.0',
+        'User-Agent': 'AtlasCapitalCenter/1.0',
       },
     })
 

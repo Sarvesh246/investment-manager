@@ -7,9 +7,11 @@ import type {
   JournalEntry,
   LedgerBaseline,
   MockDataset,
+  DecisionAuditRecord,
   PortfolioLedgerSummary,
   PortfolioHistoryStore,
   PortfolioTransaction,
+  RecommendationRunSnapshot,
   SymbolDirectoryEntry,
   Watchlist,
 } from '../domain/types';
@@ -65,6 +67,9 @@ export interface PortfolioWorkspaceValue {
   livePriceSymbols: string[];
   lastQuoteRefreshAt: string | null;
   portfolioHistory: PortfolioHistoryStore;
+  /** Last N model-run snapshots for calibration / backtesting. Compare records to forward outcomes. */
+  recommendationHistory: RecommendationRunSnapshot[];
+  decisionAuditLog: DecisionAuditRecord[];
 }
 
 export const PortfolioWorkspaceContext = createContext<PortfolioWorkspaceValue | null>(null);

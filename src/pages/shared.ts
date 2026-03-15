@@ -13,11 +13,14 @@ import type {
   ActionLabel,
   AlertItem,
   AppTheme,
+  ConfidenceBand,
+  FreshnessStatus,
   PortfolioHistorySnapshot,
   PortfolioHistoryStore,
   PortfolioTransaction,
   ScoreCard,
   SymbolDirectoryEntry,
+  ThesisHealth,
 } from './../domain/types';
 import type { LiveQuoteSnapshot } from './../live/types';
 
@@ -49,6 +52,15 @@ export const themeOptions: Array<{
   { id: 'amber', label: 'Amber', note: 'Warmer gold-led trading desk.', accent: '#f2b544' },
   { id: 'rose', label: 'Rose', note: 'Crisp coral accents with softer glow.', accent: '#ff7d6b' },
   { id: 'graphite', label: 'Graphite', note: 'Minimal monochrome with ice highlights.', accent: '#d8dde4' },
+  { id: 'violet', label: 'Violet', note: 'Soft purple accents and glow.', accent: '#a78bfa' },
+  { id: 'teal', label: 'Teal', note: 'Cool teal-cyan for a calm screen.', accent: '#2dd4bf' },
+  { id: 'mint', label: 'Mint', note: 'Light mint green, easy on the eyes.', accent: '#6ee7b7' },
+  { id: 'orange', label: 'Orange', note: 'Warm orange for high visibility.', accent: '#fb923c' },
+  { id: 'indigo', label: 'Indigo', note: 'Deep indigo for a focused look.', accent: '#818cf8' },
+  { id: 'cyan', label: 'Cyan', note: 'Bright cyan for a crisp terminal feel.', accent: '#22d3ee' },
+  { id: 'lime', label: 'Lime', note: 'Zesty lime green for high contrast.', accent: '#a3e635' },
+  { id: 'fuchsia', label: 'Fuchsia', note: 'Vivid fuchsia with a modern punch.', accent: '#d946ef' },
+  { id: 'sky', label: 'Sky', note: 'Light sky blue for a soft, airy feel.', accent: '#38bdf8' },
 ];
 
 export const strategyWeightFields = [
@@ -69,11 +81,55 @@ export function toneForAction(action: ActionLabel) {
   if (
     action === 'Buy partial' ||
     action === 'Accumulate slowly' ||
-    action === 'Watch only'
+    action === 'Watch only' ||
+    action === 'Take profit'
   ) {
     return 'warning' as const;
   }
   return 'negative' as const;
+}
+
+export function toneForConfidenceBand(band: ConfidenceBand) {
+  if (band === 'High confidence') {
+    return 'positive' as const;
+  }
+  if (band === 'Medium confidence') {
+    return 'warning' as const;
+  }
+  return 'negative' as const;
+}
+
+export function toneForThesisHealth(health: ThesisHealth) {
+  if (health === 'Improving') {
+    return 'positive' as const;
+  }
+  if (health === 'Stable') {
+    return 'neutral' as const;
+  }
+  return 'negative' as const;
+}
+
+export function toneForFreshness(status: FreshnessStatus) {
+  if (status === 'fresh') {
+    return 'positive' as const;
+  }
+  if (status === 'aging') {
+    return 'warning' as const;
+  }
+  return 'negative' as const;
+}
+
+export function freshnessText(days: number | undefined, status: FreshnessStatus) {
+  if (days == null) {
+    return status === 'stale' ? 'Unavailable' : 'Waiting';
+  }
+  if (days === 0) {
+    return 'Today';
+  }
+  if (days === 1) {
+    return '1 day old';
+  }
+  return `${Math.round(days)} days old`;
 }
 
 export function toneForAlert(severity: AlertItem['severity']) {
@@ -84,6 +140,16 @@ export function toneForAlert(severity: AlertItem['severity']) {
     return 'warning' as const;
   }
   return 'positive' as const;
+}
+
+export function alertPriorityLabel(severity: AlertItem['severity']) {
+  if (severity === 'high') {
+    return 'Must fix';
+  }
+  if (severity === 'medium') {
+    return 'Worth checking';
+  }
+  return 'FYI';
 }
 
 export function simpleActionText(action: ActionLabel) {
@@ -102,6 +168,14 @@ export function simpleActionText(action: ActionLabel) {
       return 'Keep your current position';
     case 'Trim':
       return 'Position is too large or risky';
+    case 'Sell':
+      return 'The thesis is no longer worth carrying';
+    case 'Rotate':
+      return 'A better replacement is available';
+    case 'De-risk':
+      return 'Risk needs to come down';
+    case 'Take profit':
+      return 'Some gains should be harvested';
     case 'Reassess after earnings':
       return 'Wait until the event passes';
     case 'High-upside / high-risk only':
@@ -111,6 +185,10 @@ export function simpleActionText(action: ActionLabel) {
     default:
       return action;
   }
+}
+
+export function decisionActionSummary(card: Pick<ScoreCard, 'action' | 'decision' | 'confidenceBand'>) {
+  return `${card.action}. ${card.decision.why} ${card.decision.sizingDiscipline}`;
 }
 
 export function defaultTransactionDraft(): {
@@ -280,16 +358,33 @@ export function actionPriority(action: ActionLabel) {
       return 6;
     case 'Trim':
       return 7;
-    case 'Not suitable for current portfolio':
+    case 'Take profit':
       return 8;
+    case 'De-risk':
+      return 9;
+    case 'Rotate':
+      return 10;
+    case 'Sell':
+      return 11;
+    case 'Not suitable for current portfolio':
+      return 12;
     case 'Avoid':
     default:
-      return 9;
+      return 13;
   }
 }
 
 export function isPotentialBuyAction(action: ActionLabel) {
-  return !['Avoid', 'Trim', 'Hold', 'Not suitable for current portfolio'].includes(action);
+  return ![
+    'Avoid',
+    'Trim',
+    'Sell',
+    'Rotate',
+    'De-risk',
+    'Take profit',
+    'Hold',
+    'Not suitable for current portfolio',
+  ].includes(action);
 }
 
 export function buyPotentialScore(
@@ -344,6 +439,51 @@ export function buyBlocker(
   }
 
   return 'This is close, but one more improvement in timing, fit, or risk would help.';
+}
+
+export function recommendationChangeTone(card: Pick<ScoreCard, 'recommendationChange'>) {
+  if (card.recommendationChange.actionChanged) {
+    return 'warning' as const;
+  }
+  if (card.recommendationChange.compositeDelta > 0 || card.recommendationChange.riskDelta < 0) {
+    return 'positive' as const;
+  }
+  if (card.recommendationChange.compositeDelta < 0 || card.recommendationChange.riskDelta > 0) {
+    return 'negative' as const;
+  }
+  return 'neutral' as const;
+}
+
+export function actionTimelineText(
+  card: Pick<ScoreCard, 'action' | 'recommendationChange'>,
+) {
+  if (card.recommendationChange.actionChanged) {
+    return `${card.recommendationChange.previousAction} -> ${card.action}`;
+  }
+
+  if (card.recommendationChange.compositeDelta !== 0) {
+    return `Score moved ${card.recommendationChange.compositeDelta > 0 ? 'up' : 'down'} by ${Math.abs(
+      card.recommendationChange.compositeDelta,
+    ).toFixed(1)} points`;
+  }
+
+  return 'No major change';
+}
+
+export function starterSizeLabel(weightRange?: [number, number]) {
+  if (!weightRange) {
+    return 'Starter';
+  }
+
+  const midpoint = (weightRange[0] + weightRange[1]) / 2;
+
+  if (midpoint <= 0.03) {
+    return 'Small starter';
+  }
+  if (midpoint <= 0.06) {
+    return 'Medium starter';
+  }
+  return 'Larger starter';
 }
 
 export function potentialBuyRows(model: {

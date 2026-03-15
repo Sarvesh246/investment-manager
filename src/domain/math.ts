@@ -49,3 +49,31 @@ export function percentileRank(values: number[], value: number) {
 export function meanAbsolute(values: number[]) {
   return average(values.map((value) => Math.abs(value)));
 }
+
+export function correlationCoefficient(left: number[], right: number[]) {
+  if (left.length !== right.length || left.length < 2) {
+    return 0;
+  }
+
+  const leftMean = average(left);
+  const rightMean = average(right);
+  let numerator = 0;
+  let leftVariance = 0;
+  let rightVariance = 0;
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftDelta = left[index] - leftMean;
+    const rightDelta = right[index] - rightMean;
+    numerator += leftDelta * rightDelta;
+    leftVariance += leftDelta ** 2;
+    rightVariance += rightDelta ** 2;
+  }
+
+  const denominator = Math.sqrt(leftVariance * rightVariance);
+
+  if (denominator === 0) {
+    return 0;
+  }
+
+  return clamp(numerator / denominator, -1, 1);
+}

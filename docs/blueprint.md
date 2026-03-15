@@ -1,4 +1,4 @@
-# Investment Command Center Blueprint
+# Atlas Capital Center (ACC) Blueprint
 
 ## 1. Product Thesis
 
