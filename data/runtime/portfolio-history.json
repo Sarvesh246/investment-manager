@@ -1657,22 +1657,22 @@
       "holdingCount": 7
     },
     {
-      "timestamp": "2026-03-15T06:43:12.167Z",
+      "timestamp": "2026-03-15T06:43:13.924Z",
       "granularity": "intraday",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
     },
     {
-      "timestamp": "2026-03-15T06:45:03.175Z",
+      "timestamp": "2026-03-15T06:45:05.029Z",
       "granularity": "intraday",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
     },
     {
       "timestamp": "2026-03-15T07:00:02.900Z",
@@ -1702,13 +1702,13 @@
       "holdingCount": 5
     },
     {
-      "timestamp": "2026-03-15T07:45:02.876Z",
+      "timestamp": "2026-03-15T07:45:02.929Z",
       "granularity": "intraday",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
     },
     {
       "timestamp": "2026-03-15T08:00:02.880Z",
@@ -1720,13 +1720,13 @@
       "holdingCount": 5
     },
     {
-      "timestamp": "2026-03-15T08:15:02.887Z",
+      "timestamp": "2026-03-15T08:15:04.325Z",
       "granularity": "intraday",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
     },
     {
       "timestamp": "2026-03-15T08:30:02.876Z",
@@ -1738,22 +1738,58 @@
       "holdingCount": 5
     },
     {
-      "timestamp": "2026-03-15T08:45:02.884Z",
+      "timestamp": "2026-03-15T08:58:41.649Z",
       "granularity": "intraday",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
     },
     {
-      "timestamp": "2026-03-15T09:00:02.711Z",
+      "timestamp": "2026-03-15T09:10:31.420Z",
       "granularity": "intraday",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
+    },
+    {
+      "timestamp": "2026-03-15T09:15:04.087Z",
+      "granularity": "intraday",
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
+    },
+    {
+      "timestamp": "2026-03-15T09:55:58.108Z",
+      "granularity": "intraday",
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
+    },
+    {
+      "timestamp": "2026-03-15T18:42:34.695Z",
+      "granularity": "intraday",
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
+    },
+    {
+      "timestamp": "2026-03-15T20:04:28.244Z",
+      "granularity": "intraday",
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
     }
   ],
   "daily": [
@@ -1803,13 +1839,13 @@
       "holdingCount": 7
     },
     {
-      "timestamp": "2026-03-15T06:43:12.167Z",
+      "timestamp": "2026-03-15T20:04:28.244Z",
       "granularity": "daily",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
     }
   ]
 }
