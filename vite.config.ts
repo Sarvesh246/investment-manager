@@ -132,7 +132,7 @@ async function handleSharedStorageRequest(
   }
 }
 
-export default defineConfig(({ command }) => ({
+export default defineConfig({
   base: '/investment-manager/',
   plugins: [
     react(),
@@ -164,4 +164,4 @@ export default defineConfig(({ command }) => ({
       },
     },
   ],
-}))
+})
