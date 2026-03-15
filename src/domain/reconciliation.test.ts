@@ -7,6 +7,7 @@ describe('buildPortfolioReconciliation', () => {
       brokerSnapshot: {
         importedAt: '2026-03-15T00:00:00.000Z',
         source: 'broker.csv',
+        format: 'generic',
         positions: [
           { symbol: 'AAPL', shares: 2, costBasis: 150, marketValue: 350 },
           { symbol: 'NVDA', shares: 1, costBasis: 800, marketValue: 900 },

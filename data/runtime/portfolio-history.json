@@ -1817,6 +1817,24 @@
       "cashValue": 18500,
       "costBasisValue": 39853,
       "holdingCount": 5
+    },
+    {
+      "timestamp": "2026-03-15T21:00:04.744Z",
+      "granularity": "intraday",
+      "portfolioValue": 50711,
+      "holdingsValue": 32211,
+      "cashValue": 18500,
+      "costBasisValue": 39853,
+      "holdingCount": 5
+    },
+    {
+      "timestamp": "2026-03-15T21:15:04.336Z",
+      "granularity": "intraday",
+      "portfolioValue": 50711,
+      "holdingsValue": 32211,
+      "cashValue": 18500,
+      "costBasisValue": 39853,
+      "holdingCount": 5
     }
   ],
   "daily": [

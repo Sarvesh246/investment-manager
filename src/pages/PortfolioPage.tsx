@@ -88,6 +88,7 @@ export function PortfolioPage() {
   const [transactionKindFilter, setTransactionKindFilter] = useStoredState('ic-portfolio-transaction-filter', 'All');
   const [transactionImportPreview, setTransactionImportPreview] = useState<{
     source: string;
+    format: string;
     transactions: PortfolioTransaction[];
     warnings: string[];
   } | null>(null);
@@ -131,6 +132,21 @@ export function PortfolioPage() {
   );
   const reconciliationItems = reconciliation?.items.filter((item) => item.status !== 'Aligned') ?? [];
 
+  function brokerFormatLabel(format: string) {
+    switch (format) {
+      case 'robinhood':
+        return 'Robinhood';
+      case 'fidelity':
+        return 'Fidelity';
+      case 'schwab':
+        return 'Schwab';
+      case 'webull':
+        return 'Webull';
+      default:
+        return 'Generic CSV';
+    }
+  }
+
   async function importHoldingsFile(file: File) {
     const text = await file.text();
     const { snapshot, warnings } = parseBrokerHoldingsCsv(text, file.name);
@@ -142,7 +158,7 @@ export function PortfolioPage() {
       );
     }
     addToast(
-      `Imported ${snapshot.positions.length} broker position${snapshot.positions.length === 1 ? '' : 's'} for comparison`,
+      `Imported ${snapshot.positions.length} broker position${snapshot.positions.length === 1 ? '' : 's'} for comparison (${brokerFormatLabel(snapshot.format)})`,
       'success',
     );
   }
@@ -152,6 +168,7 @@ export function PortfolioPage() {
     const preview = parseBrokerTransactionsCsv(text, file.name);
     setTransactionImportPreview({
       source: file.name,
+      format: preview.format,
       transactions: preview.transactions,
       warnings: preview.warnings,
     });
@@ -358,7 +375,7 @@ export function PortfolioPage() {
                   <div className="mini-stack">
                     <Tag tone="neutral">{transactionImportPreview.transactions.length} parsed</Tag>
                     <span className="field-help">
-                      Imported from {transactionImportPreview.source}. Buy and sell fees are pulled in as separate fee events when the CSV includes them.
+                      Imported from {transactionImportPreview.source} as {brokerFormatLabel(transactionImportPreview.format)}. Buy and sell fees are pulled in as separate fee events when the CSV includes them.
                     </span>
                   </div>
                   <label className="toggle-row">
@@ -528,6 +545,7 @@ export function PortfolioPage() {
               {brokerSnapshot?.notes.length ? (
                 <div className="text-card">
                   <strong>Import notes</strong>
+                  <p className="field-help">Detected format: {brokerFormatLabel(brokerSnapshot.format)}</p>
                   <ul className="bullet-list">
                     {brokerSnapshot.notes.map((note) => (
                       <li key={note}>{note}</li>

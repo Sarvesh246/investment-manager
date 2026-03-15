@@ -11,6 +11,7 @@ import { currentDataset as baseDataset } from '../data/currentDataset';
 import type {
   ActionLabel,
   AppTheme,
+  BrokerCsvFormat,
   BrokerImportPosition,
   BrokerImportSnapshot,
   ConfidenceBand,
@@ -464,6 +465,11 @@ function normalizeBrokerSnapshot(input: unknown): BrokerImportSnapshot | null {
   const candidate = input as Partial<BrokerImportSnapshot>;
   const importedAt = String(candidate.importedAt ?? '').trim();
   const source = String(candidate.source ?? '').trim();
+  const format = ['generic', 'robinhood', 'fidelity', 'schwab', 'webull'].includes(
+    String(candidate.format ?? '').trim(),
+  )
+    ? (String(candidate.format).trim() as BrokerCsvFormat)
+    : 'generic';
 
   if (!importedAt || !source) {
     return null;
@@ -472,6 +478,7 @@ function normalizeBrokerSnapshot(input: unknown): BrokerImportSnapshot | null {
   return {
     importedAt,
     source,
+    format,
     positions: Array.isArray(candidate.positions)
       ? candidate.positions
           .map(normalizeBrokerImportPosition)

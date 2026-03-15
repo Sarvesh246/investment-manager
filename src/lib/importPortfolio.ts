@@ -1,11 +1,10 @@
 import type {
+  BrokerCsvFormat,
   BrokerImportPosition,
   BrokerImportSnapshot,
   PortfolioTransaction,
 } from '../domain/types';
 import { normalizeSymbol } from './symbols';
-
-type BrokerCsvFormat = 'generic' | 'robinhood';
 
 function normalizeHeader(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -73,8 +72,52 @@ function detectBrokerFormat(headers: string[]): BrokerCsvFormat {
     normalizedHeaders.includes('action') &&
     normalizedHeaders.includes('quantity') &&
     normalizedHeaders.includes('price');
+  const looksLikeFidelity =
+    (normalizedHeaders.includes('accountnumber') || normalizedHeaders.includes('accountname')) &&
+    (
+      normalizedHeaders.includes('currentvalue') ||
+      normalizedHeaders.includes('lastprice') ||
+      normalizedHeaders.includes('averagecostbasis')
+    );
+  const looksLikeSchwab =
+    (
+      normalizedHeaders.includes('feesandcommissions') ||
+      normalizedHeaders.includes('feescommissions') ||
+      normalizedHeaders.includes('costbasispershare') ||
+      normalizedHeaders.includes('gainlossdollar')
+    ) ||
+    (
+      normalizedHeaders.includes('marketvalue') &&
+      normalizedHeaders.includes('costbasis') &&
+      normalizedHeaders.includes('description')
+    );
+  const looksLikeWebull =
+    (
+      normalizedHeaders.includes('filledtime') &&
+      normalizedHeaders.includes('ticker')
+    ) ||
+    (
+      normalizedHeaders.includes('ticker') &&
+      (normalizedHeaders.includes('costprice') || normalizedHeaders.includes('marketvalue'))
+    );
 
-  return looksLikeRobinhood ? 'robinhood' : 'generic';
+  if (looksLikeRobinhood) {
+    return 'robinhood';
+  }
+
+  if (looksLikeFidelity) {
+    return 'fidelity';
+  }
+
+  if (looksLikeSchwab) {
+    return 'schwab';
+  }
+
+  if (looksLikeWebull) {
+    return 'webull';
+  }
+
+  return 'generic';
 }
 
 function parseNumber(value: string | undefined) {
@@ -305,16 +348,17 @@ export function parseBrokerHoldingsCsv(text: string, source = 'Broker CSV') {
   }
 
   const headers = rows[0];
+  const format = detectBrokerFormat(headers);
   const body = rows.slice(1);
-  const symbolIndex = findColumn(headers, ['symbol', 'ticker', 'instrument', 'securitysymbol']);
-  const sharesIndex = findColumn(headers, ['shares', 'quantity', 'qty', 'quantityavailable']);
-  const costBasisIndex = findColumn(headers, ['averagecost', 'averagebuyprice', 'avgprice', 'costbasispershare', 'costpershare']);
-  const totalCostIndex = findColumn(headers, ['costbasis', 'totalcost', 'totalcostbasis']);
-  const marketPriceIndex = findColumn(headers, ['lastprice', 'currentprice', 'marketprice', 'price', 'mark']);
-  const marketValueIndex = findColumn(headers, ['marketvalue', 'equity', 'totalvalue', 'currentvalue', 'value']);
-  const cashIndex = findColumn(headers, ['cash', 'buyingpower', 'cashbalance', 'availablecash']);
-  const nameIndex = findColumn(headers, ['name', 'description', 'security', 'instrumentname']);
-  const totalEquityIndex = findColumn(headers, ['portfoliovalue', 'totalequity', 'totalaccountvalue']);
+  const symbolIndex = findColumn(headers, ['symbol', 'ticker', 'instrument', 'securitysymbol', 'stock']);
+  const sharesIndex = findColumn(headers, ['shares', 'quantity', 'qty', 'quantityavailable', 'quantityheld']);
+  const costBasisIndex = findColumn(headers, ['averagecost', 'averagebuyprice', 'avgprice', 'costbasispershare', 'costpershare', 'averagecostbasis', 'costprice', 'avgcost']);
+  const totalCostIndex = findColumn(headers, ['costbasis', 'totalcost', 'totalcostbasis', 'costbasistotal', 'totalcostbasis$', 'costbasisamount']);
+  const marketPriceIndex = findColumn(headers, ['lastprice', 'currentprice', 'marketprice', 'price', 'mark', 'lasttradeprice']);
+  const marketValueIndex = findColumn(headers, ['marketvalue', 'equity', 'totalvalue', 'currentvalue', 'value', 'positionvalue']);
+  const cashIndex = findColumn(headers, ['cash', 'buyingpower', 'cashbalance', 'availablecash', 'cashandcashequivalents']);
+  const nameIndex = findColumn(headers, ['name', 'description', 'security', 'instrumentname', 'securitydescription']);
+  const totalEquityIndex = findColumn(headers, ['portfoliovalue', 'totalequity', 'totalaccountvalue', 'accountvalue', 'netliquidation']);
 
   if (symbolIndex === -1 && nameIndex === -1) {
     throw new Error('Could not find a symbol or name column in the holdings CSV.');
@@ -394,6 +438,7 @@ export function parseBrokerHoldingsCsv(text: string, source = 'Broker CSV') {
     snapshot: {
       importedAt: new Date().toISOString(),
       source,
+      format,
       positions: normalizedPositions,
       cash,
       holdingsValue: holdingsValue != null && holdingsValue > 0 ? holdingsValue : undefined,
@@ -415,14 +460,14 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
   const headers = rows[0];
   const format = detectBrokerFormat(headers);
   const body = rows.slice(1);
-  const dateIndex = findColumn(headers, ['date', 'activitydate', 'tradedate', 'settlementdate']);
-  const actionIndex = findColumn(headers, ['kind', 'type', 'action', 'side', 'transactiontype', 'activity']);
-  const symbolIndex = findColumn(headers, ['symbol', 'ticker', 'instrument']);
-  const sharesIndex = findColumn(headers, ['shares', 'quantity', 'qty']);
-  const priceIndex = findColumn(headers, ['price', 'fillprice', 'averageprice']);
-  const amountIndex = findColumn(headers, ['amount', 'totalamount', 'netamount', 'cashamount']);
-  const feeIndex = findColumn(headers, ['fee', 'fees', 'commission']);
-  const noteIndex = findColumn(headers, ['note', 'notes', 'description', 'details']);
+  const dateIndex = findColumn(headers, ['date', 'activitydate', 'tradedate', 'settlementdate', 'filledtime', 'executiondate']);
+  const actionIndex = findColumn(headers, ['kind', 'type', 'action', 'side', 'transactiontype', 'activity', 'activitytype']);
+  const symbolIndex = findColumn(headers, ['symbol', 'ticker', 'instrument', 'stock']);
+  const sharesIndex = findColumn(headers, ['shares', 'quantity', 'qty', 'filledquantity']);
+  const priceIndex = findColumn(headers, ['price', 'fillprice', 'averageprice', 'filledprice', 'tradeprice']);
+  const amountIndex = findColumn(headers, ['amount', 'totalamount', 'netamount', 'cashamount', 'proceeds', 'principalamount', 'value']);
+  const feeIndex = findColumn(headers, ['fee', 'fees', 'commission', 'feesandcommissions', 'feescommissions']);
+  const noteIndex = findColumn(headers, ['note', 'notes', 'description', 'details', 'securitydescription']);
 
   if (dateIndex === -1 || actionIndex === -1) {
     throw new Error('Could not find the date and action columns in the transactions CSV.');

@@ -197,9 +197,12 @@ export interface BrokerImportPosition {
   marketValue?: number;
 }
 
+export type BrokerCsvFormat = 'generic' | 'robinhood' | 'fidelity' | 'schwab' | 'webull';
+
 export interface BrokerImportSnapshot {
   importedAt: string;
   source: string;
+  format: BrokerCsvFormat;
   positions: BrokerImportPosition[];
   cash?: number;
   holdingsValue?: number;
