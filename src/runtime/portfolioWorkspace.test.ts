@@ -32,6 +32,30 @@ describe('parsePersistedState', () => {
     expect(parsed.journal).toHaveLength(currentDataset.journal.length);
     expect(parsed.watchlists).toHaveLength(currentDataset.watchlists.length);
   });
+
+  it('restores a persisted broker snapshot when present', () => {
+    const parsed = parsePersistedState(
+      JSON.stringify({
+        investableCash: 0,
+        holdings: [],
+        transactions: [],
+        brokerSnapshot: {
+          importedAt: '2026-03-15T00:00:00.000Z',
+          source: 'broker.csv',
+          positions: [{ symbol: 'AAPL', shares: 2, costBasis: 150, marketValue: 350 }],
+          cash: 100,
+          holdingsValue: 350,
+          portfolioValue: 450,
+          rawRowCount: 1,
+          notes: [],
+        },
+      }),
+    );
+
+    expect(parsed.brokerSnapshot?.positions).toHaveLength(1);
+    expect(parsed.brokerSnapshot?.positions[0].symbol).toBe('AAPL');
+    expect(parsed.brokerSnapshot?.cash).toBe(100);
+  });
 });
 
 describe('resolveLedgerBaselineForTransactions', () => {

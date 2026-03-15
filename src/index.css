@@ -2099,6 +2099,10 @@ select:focus-visible {
   border-color: rgba(255, 141, 122, 0.28);
 }
 
+.metric-card--warning {
+  border-color: rgba(242, 201, 111, 0.28);
+}
+
 .score-pill,
 .tag {
   display: inline-flex;
@@ -3539,6 +3543,25 @@ select:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.field-with-action input[type='file'] {
+  width: 100%;
+  border: 1px dashed var(--line-strong);
+  border-radius: 0.82rem;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  padding: 0.72rem 0.8rem;
+}
+
+.field-with-action input[type='file']::file-selector-button {
+  margin-right: 0.75rem;
+  border: 1px solid rgba(var(--accent-rgb), 0.25);
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.14);
+  color: var(--text);
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
 }
 
 .field-with-action textarea {

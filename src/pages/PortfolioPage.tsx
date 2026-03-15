@@ -27,6 +27,7 @@ import {
   compareOverlap,
   defaultTransactionDraft,
   liveStatusText,
+  liveStatusTooltip,
   liveStatusTone,
   simpleActionText,
   symbolMatches,
@@ -43,6 +44,7 @@ import {
 import { BuyingPowerEditor } from './shared-components';
 import { usePortfolioWorkspace } from './../runtime/portfolioContext';
 import { useToast } from './../runtime/toastContext';
+import { parseBrokerHoldingsCsv, parseBrokerTransactionsCsv } from './../lib/importPortfolio';
 
 export function PortfolioPage() {
   const {
@@ -59,6 +61,13 @@ export function PortfolioPage() {
     addTransaction,
     removeTransaction,
     clearTransactions,
+    appendImportedTransactions,
+    replaceTransactionsWithImport,
+    brokerSnapshot,
+    saveBrokerSnapshot,
+    applyBrokerSnapshot,
+    clearBrokerSnapshot,
+    reconciliation,
     ensureLiveSecurity,
     loadingSymbols,
     quoteErrors,
@@ -76,6 +85,12 @@ export function PortfolioPage() {
   const [transactionDraft, setTransactionDraft] = useState(defaultTransactionDraft);
   const [holdingFilter, setHoldingFilter] = useStoredState('ic-portfolio-holding-filter', '');
   const [transactionKindFilter, setTransactionKindFilter] = useStoredState('ic-portfolio-transaction-filter', 'All');
+  const [transactionImportPreview, setTransactionImportPreview] = useState<{
+    source: string;
+    transactions: PortfolioTransaction[];
+    warnings: string[];
+  } | null>(null);
+  const [resetImportedLedger, setResetImportedLedger] = useState(true);
   const normalizedFormSymbol = normalizeSymbol(form.symbol);
   const formMatches = symbolMatches(symbolDirectory, form.symbol);
   const selectedDirectoryEntry =
@@ -113,6 +128,43 @@ export function PortfolioPage() {
   const filteredTransactions = orderedTransactions.filter((transaction) =>
     transactionKindFilter === 'All' ? true : transaction.kind === transactionKindFilter,
   );
+  const reconciliationItems = reconciliation?.items.filter((item) => item.status !== 'Aligned') ?? [];
+
+  async function importHoldingsFile(file: File) {
+    const text = await file.text();
+    const { snapshot, warnings } = parseBrokerHoldingsCsv(text, file.name);
+    saveBrokerSnapshot(snapshot);
+    if (warnings.length > 0) {
+      addToast(
+        `${warnings.length} holding import note${warnings.length === 1 ? '' : 's'} were found. Review the import notes below.`,
+        'warning',
+      );
+    }
+    addToast(
+      `Imported ${snapshot.positions.length} broker position${snapshot.positions.length === 1 ? '' : 's'} for comparison`,
+      'success',
+    );
+  }
+
+  async function importTransactionsFile(file: File) {
+    const text = await file.text();
+    const preview = parseBrokerTransactionsCsv(text, file.name);
+    setTransactionImportPreview({
+      source: file.name,
+      transactions: preview.transactions,
+      warnings: preview.warnings,
+    });
+    if (preview.warnings.length > 0) {
+      addToast(
+        `${preview.warnings.length} transaction import note${preview.warnings.length === 1 ? '' : 's'} were found. Review the warnings below.`,
+        'warning',
+      );
+    }
+    addToast(
+      `Parsed ${preview.transactions.length} imported transaction${preview.transactions.length === 1 ? '' : 's'}`,
+      'success',
+    );
+  }
 
   useEffect(() => {
     if (!normalizedFormSymbol) {
@@ -196,6 +248,290 @@ export function PortfolioPage() {
           detail={model.concentrationIssues[0] ?? 'No immediate concentration breach'}
           tone={model.concentrationIssues.length ? 'negative' : 'neutral'}
         />
+      </div>
+
+      <div className="page-section">
+        <Panel
+          title="Broker Import And Reconciliation"
+          eyebrow="Bring In Real Account Data"
+          subtitle="Import a broker CSV to compare the app against your broker and tighten your account history."
+          helpText="Use this panel to compare your app portfolio against a broker export. You can also use imported transactions to make the ledger more exact."
+        >
+          <div className="detail-grid">
+            <div className="text-card">
+              <strong>Holdings CSV</strong>
+              <p>Import a current broker holdings export to compare share counts, cash, and total value.</p>
+              <label className="field-with-action">
+                <span>Choose holdings CSV</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) {
+                      return;
+                    }
+                    void importHoldingsFile(file).catch((error) => {
+                      addToast(
+                        error instanceof Error ? error.message : 'Holdings import failed.',
+                        'error',
+                      );
+                    });
+                    event.currentTarget.value = '';
+                  }}
+                />
+              </label>
+              <div className="summary-card__actions">
+                {brokerSnapshot ? (
+                  <>
+                    <button
+                      type="button"
+                      className="action-button"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            'Use the imported holdings as your current portfolio? This will replace current holdings and clear the transaction ledger so the imported snapshot becomes the new baseline.',
+                          )
+                        ) {
+                          applyBrokerSnapshot(brokerSnapshot);
+                          setTransactionImportPreview(null);
+                          addToast('Imported holdings applied as the new portfolio baseline', 'success');
+                        }
+                      }}
+                    >
+                      Use imported holdings
+                    </button>
+                    <button
+                      type="button"
+                      className="pill-button pill-button--danger"
+                      onClick={() => {
+                        clearBrokerSnapshot();
+                        addToast('Broker snapshot cleared', 'info');
+                      }}
+                    >
+                      Clear imported snapshot
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="text-card">
+              <strong>Transactions CSV</strong>
+              <p>Import buys, sells, dividends, deposits, withdrawals, splits, and fees from your broker.</p>
+              <label className="field-with-action">
+                <span>Choose transactions CSV</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) {
+                      return;
+                    }
+                    void importTransactionsFile(file).catch((error) => {
+                      addToast(
+                        error instanceof Error ? error.message : 'Transaction import failed.',
+                        'error',
+                      );
+                    });
+                    event.currentTarget.value = '';
+                  }}
+                />
+              </label>
+              {transactionImportPreview ? (
+                <>
+                  <div className="mini-stack">
+                    <Tag tone="neutral">{transactionImportPreview.transactions.length} parsed</Tag>
+                    <span className="field-help">
+                      Imported from {transactionImportPreview.source}. Buy and sell fees are pulled in as separate fee events when the CSV includes them.
+                    </span>
+                  </div>
+                  <label className="toggle-row">
+                    <div>
+                      <strong>Start from zero</strong>
+                      <span>Turn this on if the broker CSV is your full account history and you want the ledger replay to rebuild the account from scratch.</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={resetImportedLedger}
+                      onChange={(event) => setResetImportedLedger(event.target.checked)}
+                    />
+                  </label>
+                  <div className="summary-card__actions">
+                    <button
+                      type="button"
+                      className="action-button"
+                      onClick={() => {
+                        const result = appendImportedTransactions(transactionImportPreview.transactions);
+                        addToast(
+                          `Added ${result.added} imported transaction${result.added === 1 ? '' : 's'}${result.skipped > 0 ? ` and skipped ${result.skipped} duplicate${result.skipped === 1 ? '' : 's'}` : ''}`,
+                          'success',
+                        );
+                      }}
+                    >
+                      Add to ledger
+                    </button>
+                    <button
+                      type="button"
+                      className="pill-button"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            resetImportedLedger
+                              ? 'Replace the current ledger and rebuild from zero?'
+                              : 'Replace the current ledger using your current holdings and cash as the starting baseline?',
+                          )
+                        ) {
+                          const result = replaceTransactionsWithImport(
+                            transactionImportPreview.transactions,
+                            { resetBaseline: resetImportedLedger },
+                          );
+                          addToast(
+                            `Replaced the ledger with ${result.added} imported transaction${result.added === 1 ? '' : 's'}`,
+                            'success',
+                          );
+                        }
+                      }}
+                    >
+                      Replace ledger
+                    </button>
+                  </div>
+                  {transactionImportPreview.warnings.length > 0 ? (
+                    <div className="text-card">
+                      <strong>Import warnings</strong>
+                      <ul className="bullet-list">
+                        {transactionImportPreview.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <span className="field-help">
+                  Tip: if the file is your full account history, use Replace ledger with Start from zero turned on.
+                </span>
+              )}
+            </div>
+          </div>
+
+          {reconciliation ? (
+            <div className="mini-stack">
+              <div className="kpi-grid">
+                <MetricCard
+                  label="Modeled Total"
+                  value={formatCurrency(reconciliation.modeledPortfolioValue)}
+                  detail="What the app currently thinks your account is worth"
+                />
+                <MetricCard
+                  label="Broker Total"
+                  value={
+                    reconciliation.brokerPortfolioValue != null
+                      ? formatCurrency(reconciliation.brokerPortfolioValue)
+                      : 'Not included'
+                  }
+                  detail="What came from the broker import"
+                />
+                <MetricCard
+                  label="Difference"
+                  value={
+                    reconciliation.portfolioDifference != null
+                      ? formatCurrency(reconciliation.portfolioDifference)
+                      : 'Need more data'
+                  }
+                  detail={reconciliation.summary}
+                  tone={
+                    reconciliation.portfolioDifference == null
+                      ? 'neutral'
+                      : Math.abs(reconciliation.portfolioDifference) < 1
+                        ? 'positive'
+                        : 'warning'
+                  }
+                />
+                <MetricCard
+                  label="Cash Check"
+                  value={
+                    reconciliation.cashDifference != null
+                      ? formatCurrency(reconciliation.cashDifference)
+                      : 'Cash not imported'
+                  }
+                  detail={
+                    reconciliation.brokerCash != null
+                      ? `Broker cash ${formatCurrency(reconciliation.brokerCash)}`
+                      : 'The import did not include a cash line'
+                  }
+                  tone={reconciliation.cashDifference == null ? 'neutral' : Math.abs(reconciliation.cashDifference) < 1 ? 'positive' : 'warning'}
+                />
+              </div>
+
+              {reconciliationItems.length > 0 ? (
+                <Table
+                  columns={['Symbol', 'Issue', 'App', 'Broker', 'Difference', 'Why this may differ']}
+                  rows={reconciliationItems.map((item) => [
+                    <strong key={`${item.symbol}-symbol`}>{item.symbol}</strong>,
+                    <Tag
+                      key={`${item.symbol}-status`}
+                      tone={
+                        item.status === 'Aligned'
+                          ? 'positive'
+                          : item.status === 'Price differs' || item.status === 'Cost basis differs'
+                            ? 'warning'
+                            : 'negative'
+                      }
+                    >
+                      {item.status}
+                    </Tag>,
+                    <span key={`${item.symbol}-app`}>
+                      {item.appShares != null ? `${item.appShares.toLocaleString('en-US', { maximumFractionDigits: 6 })} sh` : '-'}
+                      {item.appMarketValue != null ? ` / ${formatCurrency(item.appMarketValue)}` : ''}
+                    </span>,
+                    <span key={`${item.symbol}-broker`}>
+                      {item.brokerShares != null ? `${item.brokerShares.toLocaleString('en-US', { maximumFractionDigits: 6 })} sh` : '-'}
+                      {item.brokerMarketValue != null ? ` / ${formatCurrency(item.brokerMarketValue)}` : ''}
+                    </span>,
+                    <span key={`${item.symbol}-difference`}>
+                      {item.differenceValue != null ? formatCurrency(item.differenceValue) : '-'}
+                    </span>,
+                    <span key={`${item.symbol}-note`}>{item.note}</span>,
+                  ])}
+                />
+              ) : (
+                <div className="text-card">
+                  <strong>No position mismatches</strong>
+                  <p>The imported broker snapshot lines up with your current app positions.</p>
+                </div>
+              )}
+
+              {reconciliation.likelyCauses.length > 0 ? (
+                <ul className="bullet-list">
+                  {reconciliation.likelyCauses.map((cause) => (
+                    <li key={cause}>{cause}</li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {brokerSnapshot?.notes.length ? (
+                <div className="text-card">
+                  <strong>Import notes</strong>
+                  <ul className="bullet-list">
+                    {brokerSnapshot.notes.map((note) => (
+                      <li key={note}>{note}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="empty-state empty-state--compact">
+              <div className="empty-state__icon" aria-hidden="true">
+                <BriefcaseBusiness size={36} strokeWidth={1.25} />
+              </div>
+              <h2>No broker snapshot imported yet.</h2>
+              <p>Import a holdings CSV to compare your app portfolio against your broker in plain terms.</p>
+            </div>
+          )}
+        </Panel>
       </div>
 
       <div className="two-column-layout">
@@ -471,6 +807,7 @@ export function PortfolioPage() {
               <Tag
                 key={`${holding.symbol}-market`}
                 tone={liveStatusTone(holding.symbol, loadingSymbols, quoteErrors, liveQuotes)}
+                tooltip={liveStatusTooltip(holding.symbol, loadingSymbols, quoteErrors, liveQuotes)}
               >
                 {liveStatusText(holding.symbol, loadingSymbols, quoteErrors, liveQuotes)}
               </Tag>,

@@ -6,10 +6,13 @@ import {
   mergeDecisionAuditLog,
   mergeRecommendationHistory,
 } from '../domain/recommendationHistory';
+import { buildPortfolioReconciliation } from '../domain/reconciliation';
 import { currentDataset as baseDataset } from '../data/currentDataset';
 import type {
   ActionLabel,
   AppTheme,
+  BrokerImportPosition,
+  BrokerImportSnapshot,
   ConfidenceBand,
   DecisionAuditRecord,
   EditableUserSettings,
@@ -27,6 +30,7 @@ import type {
   RecommendationRunSnapshot,
   RiskBucket,
   SecuritySeed,
+  PortfolioReconciliation,
   StrategyStyle,
   StrategyWeights,
   SymbolDirectoryEntry,
@@ -57,6 +61,7 @@ interface PersistedState {
   holdings: Holding[];
   transactions: PortfolioTransaction[];
   ledgerBaseline: LedgerBaseline | null;
+  brokerSnapshot: BrokerImportSnapshot | null;
   userSettings: EditableUserSettings;
   theme: AppTheme;
   journal: JournalEntry[];
@@ -126,6 +131,7 @@ function defaultState(): PersistedState {
     holdings: [],
     transactions: [],
     ledgerBaseline: null,
+    brokerSnapshot: null,
     userSettings: defaultUserSettings(),
     theme: defaultTheme(),
     journal: [],
@@ -427,6 +433,99 @@ function normalizeWatchlist(input: unknown): Watchlist | null {
   };
 }
 
+function normalizeBrokerImportPosition(input: unknown): BrokerImportPosition | null {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+
+  const candidate = input as Partial<BrokerImportPosition>;
+  const symbol = normalizeSymbol(String(candidate.symbol ?? ''));
+  const shares = Number(candidate.shares ?? 0);
+
+  if (!symbol || !Number.isFinite(shares) || shares <= 0) {
+    return null;
+  }
+
+  return {
+    symbol,
+    name: candidate.name ? String(candidate.name).trim() : undefined,
+    shares,
+    costBasis: candidate.costBasis == null ? undefined : Number(candidate.costBasis),
+    marketPrice: candidate.marketPrice == null ? undefined : Number(candidate.marketPrice),
+    marketValue: candidate.marketValue == null ? undefined : Number(candidate.marketValue),
+  };
+}
+
+function normalizeBrokerSnapshot(input: unknown): BrokerImportSnapshot | null {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+
+  const candidate = input as Partial<BrokerImportSnapshot>;
+  const importedAt = String(candidate.importedAt ?? '').trim();
+  const source = String(candidate.source ?? '').trim();
+
+  if (!importedAt || !source) {
+    return null;
+  }
+
+  return {
+    importedAt,
+    source,
+    positions: Array.isArray(candidate.positions)
+      ? candidate.positions
+          .map(normalizeBrokerImportPosition)
+          .filter((position): position is BrokerImportPosition => position !== null)
+      : [],
+    cash: candidate.cash == null ? undefined : Number(candidate.cash),
+    holdingsValue: candidate.holdingsValue == null ? undefined : Number(candidate.holdingsValue),
+    portfolioValue: candidate.portfolioValue == null ? undefined : Number(candidate.portfolioValue),
+    rawRowCount: Math.max(0, Math.round(Number(candidate.rawRowCount ?? 0) || 0)),
+    notes: normalizeStringList(candidate.notes),
+  };
+}
+
+function transactionSignature(transaction: Omit<PortfolioTransaction, 'id'>) {
+  return [
+    transaction.kind,
+    transaction.date,
+    transaction.symbol ?? '',
+    transaction.shares ?? '',
+    transaction.price ?? '',
+    transaction.amount ?? '',
+    transaction.splitRatio ?? '',
+    transaction.note ?? '',
+    transaction.source,
+  ].join('|');
+}
+
+function mergeImportedTransactions(
+  existing: PortfolioTransaction[],
+  imported: PortfolioTransaction[],
+) {
+  const signatures = new Set(existing.map((transaction) => transactionSignature(transaction)));
+  const additions: PortfolioTransaction[] = [];
+  let skipped = 0;
+
+  imported.forEach((transaction) => {
+    const signature = transactionSignature(transaction);
+
+    if (signatures.has(signature)) {
+      skipped += 1;
+      return;
+    }
+
+    signatures.add(signature);
+    additions.push(transaction);
+  });
+
+  return {
+    transactions: [...existing, ...additions],
+    added: additions.length,
+    skipped,
+  };
+}
+
 function normalizeRecommendationOutcome(
   horizon: OutcomeHorizon,
   input: unknown,
@@ -579,6 +678,7 @@ export function parsePersistedState(raw: string | null): PersistedState {
         ? parsed.transactions.map(normalizeTransaction).filter((transaction): transaction is PortfolioTransaction => transaction !== null)
         : [],
       ledgerBaseline: normalizeLedgerBaseline(parsed.ledgerBaseline),
+      brokerSnapshot: normalizeBrokerSnapshot(parsed.brokerSnapshot),
       userSettings: normalizeUserSettings(parsed.userSettings),
       theme: normalizeTheme(parsed.theme),
       journal: hasPersistedJournal && Array.isArray(parsed.journal)
@@ -755,6 +855,9 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
   const [baseInvestableCash, setBaseInvestableCashState] = useState(initial.investableCash);
   const [transactions, setTransactions] = useState<PortfolioTransaction[]>(initial.transactions);
   const [ledgerBaseline, setLedgerBaseline] = useState<LedgerBaseline | null>(initial.ledgerBaseline);
+  const [brokerSnapshot, setBrokerSnapshot] = useState<BrokerImportSnapshot | null>(
+    initial.brokerSnapshot,
+  );
   const [userSettings, setUserSettings] = useState<EditableUserSettings>(initial.userSettings);
   const [theme, setThemeState] = useState<AppTheme>(initial.theme);
   const [journal, setJournal] = useState<JournalEntry[]>(initial.journal);
@@ -822,6 +925,7 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       investableCash: baseInvestableCash,
       transactions,
       ledgerBaseline,
+      brokerSnapshot,
       userSettings,
       journal,
       watchlists,
@@ -829,7 +933,7 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       decisionAuditLog,
       theme,
     });
-  }, [baseHoldings, baseInvestableCash, decisionAuditLog, journal, ledgerBaseline, recommendationHistory, theme, transactions, userSettings, watchlists]);
+  }, [baseHoldings, baseInvestableCash, brokerSnapshot, decisionAuditLog, journal, ledgerBaseline, recommendationHistory, theme, transactions, userSettings, watchlists]);
 
   useEffect(() => {
     if (typeof document === 'undefined') {
@@ -1264,6 +1368,48 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
 
   const model = useMemo(() => buildCommandCenterModel(dataset), [dataset]);
 
+  const reconciliation = useMemo<PortfolioReconciliation | null>(() => {
+    const baseReconciliation = buildPortfolioReconciliation({
+      brokerSnapshot,
+      holdings: model.holdings,
+      investableCash,
+      portfolioValue: model.portfolioValue,
+    });
+
+    if (!baseReconciliation) {
+      return null;
+    }
+
+    const likelyCauses = [...baseReconciliation.likelyCauses];
+    const unavailableSymbols = model.holdings
+      .filter((holding) => quoteErrors[holding.symbol])
+      .map((holding) => holding.symbol);
+    const extendedHoursSymbols = Object.entries(liveQuotes)
+      .filter(([, quote]) => quote.session !== 'regular')
+      .map(([symbol]) => symbol);
+
+    if (unavailableSymbols.length > 0) {
+      likelyCauses.push(
+        `Live prices were unavailable for ${unavailableSymbols.join(', ')}, so the app is falling back to older snapshot prices for those names.`,
+      );
+    }
+
+    if (extendedHoursSymbols.length > 0) {
+      likelyCauses.push(
+        `Some values are using extended-hours prices (${extendedHoursSymbols.join(', ')}). Broker totals can move faster than public feeds outside the regular session.`,
+      );
+    }
+
+    if (lastQuoteRefreshAt) {
+      likelyCauses.push(`Last public quote refresh: ${new Date(lastQuoteRefreshAt).toLocaleString()}.`);
+    }
+
+    return {
+      ...baseReconciliation,
+      likelyCauses: [...new Set(likelyCauses)],
+    };
+  }, [brokerSnapshot, investableCash, lastQuoteRefreshAt, liveQuotes, model.holdings, model.portfolioValue, quoteErrors]);
+
   useEffect(() => {
     const snapshot = buildRecommendationRunSnapshot(model);
     setRecommendationHistory((prev) => {
@@ -1434,6 +1580,83 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
     setLedgerBaseline(null);
   }, []);
 
+  const appendImportedTransactions = useCallback((importedTransactions: PortfolioTransaction[]) => {
+    const normalizedTransactions = importedTransactions
+      .map(normalizeTransaction)
+      .filter((transaction): transaction is PortfolioTransaction => transaction !== null);
+
+    const result = mergeImportedTransactions(transactions, normalizedTransactions);
+    setTransactions(result.transactions);
+    setLedgerBaseline((current) => current ?? createLedgerBaseline(baseHoldings, baseInvestableCash));
+
+    return { added: result.added, skipped: result.skipped };
+  }, [baseHoldings, baseInvestableCash, transactions]);
+
+  const replaceTransactionsWithImport = useCallback(
+    (
+      importedTransactions: PortfolioTransaction[],
+      options?: { resetBaseline?: boolean },
+    ) => {
+      const normalizedTransactions = importedTransactions
+        .map(normalizeTransaction)
+        .filter((transaction): transaction is PortfolioTransaction => transaction !== null);
+      const uniqueImport = mergeImportedTransactions([], normalizedTransactions);
+
+      if (options?.resetBaseline) {
+        setBaseHoldings([]);
+        setBaseInvestableCashState(0);
+        setLedgerBaseline(createLedgerBaseline([], 0));
+      } else {
+        setLedgerBaseline(createLedgerBaseline(baseHoldings, baseInvestableCash));
+      }
+
+      setTransactions(uniqueImport.transactions);
+
+      return { added: uniqueImport.added, skipped: uniqueImport.skipped };
+    },
+    [baseHoldings, baseInvestableCash],
+  );
+
+  const saveBrokerSnapshot = useCallback((snapshot: BrokerImportSnapshot) => {
+    setBrokerSnapshot(normalizeBrokerSnapshot(snapshot));
+  }, []);
+
+  const applyBrokerSnapshot = useCallback(
+    (snapshot: BrokerImportSnapshot) => {
+      const normalized = normalizeBrokerSnapshot(snapshot);
+
+      if (!normalized) {
+        return;
+      }
+
+      setBrokerSnapshot(normalized);
+      setBaseHoldings(
+        normalized.positions.map((position) => ({
+          symbol: position.symbol,
+          shares: position.shares,
+          costBasis:
+            position.costBasis ??
+            position.marketPrice ??
+            ((position.marketValue ?? 0) / Math.max(position.shares, 1)),
+          styleTags: [],
+          thesisTags: [],
+          entryDate: new Date().toISOString().slice(0, 10),
+        })),
+      );
+      setBaseInvestableCashState(normalized.cash ?? baseInvestableCash);
+      setTransactions([]);
+      setLedgerBaseline(null);
+      normalized.positions.forEach((position) => {
+        void fetchFullSymbol(position.symbol);
+      });
+    },
+    [baseInvestableCash, fetchFullSymbol],
+  );
+
+  const clearBrokerSnapshot = useCallback(() => {
+    setBrokerSnapshot(null);
+  }, []);
+
   const updateUserSettings = useCallback(
     (
       update:
@@ -1553,6 +1776,8 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       addTransaction,
       removeTransaction,
       clearTransactions,
+      appendImportedTransactions,
+      replaceTransactionsWithImport,
       userSettings,
       updateUserSettings,
       resetUserSettings,
@@ -1574,6 +1799,11 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       liveQuotes,
       livePriceSymbols: Object.keys(liveQuotes),
       lastQuoteRefreshAt,
+      brokerSnapshot,
+      saveBrokerSnapshot,
+      applyBrokerSnapshot,
+      clearBrokerSnapshot,
+      reconciliation,
       portfolioHistory,
       recommendationHistory,
       decisionAuditLog,
@@ -1584,7 +1814,10 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       addSymbolToWatchlist,
       addTransaction,
       addWatchlist,
+      appendImportedTransactions,
+      applyBrokerSnapshot,
       clearTransactions,
+      clearBrokerSnapshot,
       dataset,
       holdings,
       investableCash,
@@ -1597,13 +1830,16 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       liveQuotes,
       recommendationHistory,
       decisionAuditLog,
+      reconciliation,
       removeHolding,
       removeJournalEntry,
       removeSymbolFromWatchlist,
       removeTransaction,
       removeWatchlist,
+      replaceTransactionsWithImport,
       fetchFullSymbol,
       resetUserSettings,
+      saveBrokerSnapshot,
       setInvestableCash,
       setTheme,
       symbolDirectory,
@@ -1613,6 +1849,7 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       transactions,
       ledgerBaseline,
       accounting.summary,
+      brokerSnapshot,
       updateJournalEntry,
       updateUserSettings,
       updateWatchlist,

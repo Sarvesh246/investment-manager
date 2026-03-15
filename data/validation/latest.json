@@ -1,16 +1,16 @@
 {
-  "generatedAt": "2026-03-14T18:25:10.799Z",
+  "generatedAt": "2026-03-15T08:56:45.561Z",
   "snapshotCount": 3,
   "pairCount": 2,
   "hitRate": 0.0417,
   "averageForwardReturn": 0,
   "averageBenchmarkRelativeReturn": 0,
   "averageTurnover": 0,
-  "brierScore": 0.2277,
+  "brierScore": 0.2263,
   "scoreDeciles": [
     {
       "decile": 4,
-      "count": 2,
+      "count": 4,
       "avgForwardReturn": 0,
       "avgBenchmarkRelativeReturn": 0,
       "hitRate": 0
@@ -24,33 +24,33 @@
     },
     {
       "decile": 6,
-      "count": 12,
+      "count": 10,
       "avgForwardReturn": 0,
       "avgBenchmarkRelativeReturn": 0,
-      "hitRate": 0.0833
+      "hitRate": 0.1
     }
   ],
   "calibration": [
     {
       "bucket": "30-40%",
       "count": 4,
-      "predicted": 0.3395,
+      "predicted": 0.337,
       "realized": 0,
-      "brier": 0.1159
+      "brier": 0.1141
     },
     {
       "bucket": "40-50%",
       "count": 10,
-      "predicted": 0.4504,
+      "predicted": 0.4482,
       "realized": 0,
-      "brier": 0.2035
+      "brier": 0.2016
     },
     {
       "bucket": "50-60%",
       "count": 10,
-      "predicted": 0.558,
+      "predicted": 0.5574,
       "realized": 0.1,
-      "brier": 0.2967
+      "brier": 0.2958
     }
   ],
   "regimes": [
@@ -70,15 +70,22 @@
       "hitRate": 0
     },
     {
-      "action": "Trim",
-      "count": 6,
+      "action": "Take profit",
+      "count": 4,
       "avgForwardReturn": 0,
       "avgBenchmarkRelativeReturn": 0,
       "hitRate": 0
     },
     {
-      "action": "Take profit",
+      "action": "Trim",
       "count": 4,
+      "avgForwardReturn": 0,
+      "avgBenchmarkRelativeReturn": 0,
+      "hitRate": 0
+    },
+    {
+      "action": "Hold",
+      "count": 2,
       "avgForwardReturn": 0,
       "avgBenchmarkRelativeReturn": 0,
       "hitRate": 0
@@ -95,20 +102,20 @@
     {
       "band": "Medium confidence",
       "count": 22,
-      "predicted": 0.4675,
+      "predicted": 0.4656,
       "realized": 0,
       "avgForwardReturn": 0,
       "hitRate": 0,
-      "brier": 0.2251
+      "brier": 0.2235
     },
     {
       "band": "Low confidence",
       "count": 2,
-      "predicted": 0.579,
+      "predicted": 0.58,
       "realized": 0.5,
       "avgForwardReturn": 0.0002,
       "hitRate": 0.5,
-      "brier": 0.2562
+      "brier": 0.2564
     }
   ],
   "sectors": [
@@ -141,14 +148,14 @@
       "hitRate": 0
     },
     {
-      "sector": "Utilities",
+      "sector": "Healthcare",
       "count": 2,
       "avgForwardReturn": 0,
       "avgBenchmarkRelativeReturn": 0,
       "hitRate": 0
     },
     {
-      "sector": "Healthcare",
+      "sector": "Utilities",
       "count": 2,
       "avgForwardReturn": 0,
       "avgBenchmarkRelativeReturn": 0,

@@ -46,11 +46,13 @@ const navIcons: Record<string, React.ComponentType<{ size?: number }>> = {
 
 export function bindSkipLinkFocus(
   skipLink: Pick<HTMLAnchorElement, 'addEventListener' | 'removeEventListener'>,
-  mainContent: Pick<HTMLElement, 'focus' | 'scrollIntoView'>,
+  mainContent: Pick<HTMLElement, 'focus'> & Partial<Pick<HTMLElement, 'scrollIntoView'>>,
 ) {
   const handleSkip = (event: Pick<MouseEvent, 'preventDefault'>) => {
     event.preventDefault();
-    mainContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (typeof mainContent.scrollIntoView === 'function') {
+      mainContent.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
     mainContent.focus();
   };
 
@@ -494,4 +496,3 @@ export function AppShell() {
     </div>
   );
 }
-

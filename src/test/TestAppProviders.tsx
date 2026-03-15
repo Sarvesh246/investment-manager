@@ -5,10 +5,12 @@ import { buildCommandCenterModel } from '../domain/engine';
 import { createLedgerBaseline } from '../domain/portfolioAccounting';
 import type {
   AppTheme,
+  BrokerImportSnapshot,
   EditableUserSettings,
   Holding,
   JournalEntry,
   LedgerBaseline,
+  PortfolioReconciliation,
   PortfolioHistoryStore,
   PortfolioTransaction,
   SymbolDirectoryEntry,
@@ -35,6 +37,8 @@ interface TestWorkspaceOverrides {
   quoteErrors?: Record<string, string>;
   liveQuotes?: PortfolioWorkspaceValue['liveQuotes'];
   lastQuoteRefreshAt?: string | null;
+  brokerSnapshot?: BrokerImportSnapshot | null;
+  reconciliation?: PortfolioReconciliation | null;
 }
 
 function defaultUserSettings(): EditableUserSettings {
@@ -211,6 +215,8 @@ export function TestAppProviders({
       clearTransactions: () => {
         setTransactions([]);
       },
+      appendImportedTransactions: () => ({ added: 0, skipped: 0 }),
+      replaceTransactionsWithImport: () => ({ added: 0, skipped: 0 }),
       userSettings,
       updateUserSettings: (update) => {
         setUserSettings((current) => mergeUserSettings(current, update));
@@ -286,6 +292,11 @@ export function TestAppProviders({
       liveQuotes: overrides?.liveQuotes ?? {},
       livePriceSymbols: Object.keys(overrides?.liveQuotes ?? {}),
       lastQuoteRefreshAt: overrides?.lastQuoteRefreshAt ?? null,
+      brokerSnapshot: overrides?.brokerSnapshot ?? null,
+      saveBrokerSnapshot: () => {},
+      applyBrokerSnapshot: () => {},
+      clearBrokerSnapshot: () => {},
+      reconciliation: overrides?.reconciliation ?? null,
       portfolioHistory: emptyHistory,
       recommendationHistory: [],
       decisionAuditLog: [],

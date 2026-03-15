@@ -303,14 +303,57 @@ export function liveStatusText(
   }
 
   if (quoteErrors[symbol]) {
-    return 'Unavailable';
+    return 'Quote issue';
   }
 
-  if (liveQuotes[symbol]) {
-    return liveQuotes[symbol].sessionLabel;
+  const quote = liveQuotes[symbol];
+
+  if (quote) {
+    const ageMinutes = Math.max(
+      0,
+      Math.round((Date.now() - new Date(quote.timestamp).getTime()) / 60_000),
+    );
+
+    if (ageMinutes <= 1) {
+      return quote.sessionLabel;
+    }
+
+    if (ageMinutes < 60) {
+      return `${quote.sessionLabel} / ${ageMinutes}m`;
+    }
+
+    return `${quote.sessionLabel} / ${Math.round(ageMinutes / 60)}h`;
   }
 
-  return 'Snapshot';
+  return 'Snapshot only';
+}
+
+export function liveStatusTooltip(
+  symbol: string,
+  loadingSymbols: string[],
+  quoteErrors: Record<string, string>,
+  liveQuotes: Record<string, LiveQuoteSnapshot>,
+) {
+  if (loadingSymbols.includes(symbol)) {
+    return 'The app is asking Yahoo Finance for a fresh public quote right now.';
+  }
+
+  if (quoteErrors[symbol]) {
+    return quoteErrors[symbol];
+  }
+
+  const quote = liveQuotes[symbol];
+
+  if (quote) {
+    const updatedAt = new Date(quote.timestamp);
+    const ageMinutes = Math.max(0, Math.round((Date.now() - updatedAt.getTime()) / 60_000));
+    const ageText =
+      ageMinutes <= 1 ? 'just now' : ageMinutes < 60 ? `${ageMinutes} minute${ageMinutes === 1 ? '' : 's'} ago` : `${Math.round(ageMinutes / 60)} hour${Math.round(ageMinutes / 60) === 1 ? '' : 's'} ago`;
+
+    return `Using a public ${quote.sessionLabel.toLowerCase()} quote from ${ageText}.`;
+  }
+
+  return 'No live public quote is loaded for this symbol yet. The app is using its saved snapshot data.';
 }
 
 export function liveStatusTone(
@@ -327,7 +370,16 @@ export function liveStatusTone(
     return 'negative' as const;
   }
 
-  const session = liveQuotes[symbol]?.session;
+  const quote = liveQuotes[symbol];
+  const session = quote?.session;
+
+  if (quote) {
+    const ageMinutes = Math.max(0, Math.round((Date.now() - new Date(quote.timestamp).getTime()) / 60_000));
+
+    if (ageMinutes > 120) {
+      return 'warning' as const;
+    }
+  }
 
   if (session === 'regular') {
     return 'positive' as const;

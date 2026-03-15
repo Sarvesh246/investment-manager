@@ -196,7 +196,7 @@ export function MetricCard({
   label: string;
   value: string;
   detail: string;
-  tone?: 'positive' | 'negative' | 'neutral';
+  tone?: 'positive' | 'negative' | 'neutral' | 'warning';
   tooltip?: string;
 }) {
   return (

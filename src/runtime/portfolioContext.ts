@@ -2,11 +2,13 @@ import { createContext, useContext } from 'react';
 import type { buildCommandCenterModel } from '../domain/engine';
 import type {
   AppTheme,
+  BrokerImportSnapshot,
   EditableUserSettings,
   Holding,
   JournalEntry,
   LedgerBaseline,
   MockDataset,
+  PortfolioReconciliation,
   DecisionAuditRecord,
   PortfolioLedgerSummary,
   PortfolioHistoryStore,
@@ -41,6 +43,13 @@ export interface PortfolioWorkspaceValue {
   ) => void;
   removeTransaction: (id: string) => void;
   clearTransactions: () => void;
+  appendImportedTransactions: (
+    transactions: PortfolioTransaction[],
+  ) => { added: number; skipped: number };
+  replaceTransactionsWithImport: (
+    transactions: PortfolioTransaction[],
+    options?: { resetBaseline?: boolean },
+  ) => { added: number; skipped: number };
   userSettings: EditableUserSettings;
   updateUserSettings: (
     update:
@@ -66,6 +75,11 @@ export interface PortfolioWorkspaceValue {
   liveQuotes: Record<string, LiveQuoteSnapshot>;
   livePriceSymbols: string[];
   lastQuoteRefreshAt: string | null;
+  brokerSnapshot: BrokerImportSnapshot | null;
+  saveBrokerSnapshot: (snapshot: BrokerImportSnapshot) => void;
+  applyBrokerSnapshot: (snapshot: BrokerImportSnapshot) => void;
+  clearBrokerSnapshot: () => void;
+  reconciliation: PortfolioReconciliation | null;
   portfolioHistory: PortfolioHistoryStore;
   /** Last N model-run snapshots for calibration / backtesting. Compare records to forward outcomes. */
   recommendationHistory: RecommendationRunSnapshot[];

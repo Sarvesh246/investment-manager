@@ -188,6 +188,64 @@ export interface PortfolioLedgerSummary {
   notes: string[];
 }
 
+export interface BrokerImportPosition {
+  symbol: string;
+  name?: string;
+  shares: number;
+  costBasis?: number;
+  marketPrice?: number;
+  marketValue?: number;
+}
+
+export interface BrokerImportSnapshot {
+  importedAt: string;
+  source: string;
+  positions: BrokerImportPosition[];
+  cash?: number;
+  holdingsValue?: number;
+  portfolioValue?: number;
+  rawRowCount: number;
+  notes: string[];
+}
+
+export type ReconciliationStatus =
+  | 'Aligned'
+  | 'Missing in app'
+  | 'Missing in broker'
+  | 'Share count differs'
+  | 'Price differs'
+  | 'Cost basis differs';
+
+export interface ReconciliationItem {
+  symbol: string;
+  status: ReconciliationStatus;
+  appShares?: number;
+  brokerShares?: number;
+  appMarketValue?: number;
+  brokerMarketValue?: number;
+  appCostBasis?: number;
+  brokerCostBasis?: number;
+  differenceValue?: number;
+  note: string;
+}
+
+export interface PortfolioReconciliation {
+  importedAt: string;
+  source: string;
+  modeledCash: number;
+  modeledHoldingsValue: number;
+  modeledPortfolioValue: number;
+  brokerCash?: number;
+  brokerHoldingsValue?: number;
+  brokerPortfolioValue?: number;
+  cashDifference?: number;
+  holdingsDifference?: number;
+  portfolioDifference?: number;
+  items: ReconciliationItem[];
+  likelyCauses: string[];
+  summary: string;
+}
+
 export interface Watchlist {
   id: string;
   name: string;
