@@ -1801,13 +1801,13 @@
       "holdingCount": 5
     },
     {
-      "timestamp": "2026-03-15T20:42:24.971Z",
+      "timestamp": "2026-03-15T20:42:40.466Z",
       "granularity": "intraday",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.99,
+      "holdingCount": 7
     },
     {
       "timestamp": "2026-03-15T20:45:05.092Z",
@@ -1819,13 +1819,13 @@
       "holdingCount": 5
     },
     {
-      "timestamp": "2026-03-15T21:00:04.744Z",
+      "timestamp": "2026-03-15T21:13:52.438Z",
       "granularity": "intraday",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 5372,
+      "holdingsValue": 5234,
+      "cashValue": 138.64,
+      "costBasisValue": 4926.84,
+      "holdingCount": 7
     },
     {
       "timestamp": "2026-03-15T21:15:04.336Z",
@@ -1835,6 +1835,24 @@
       "cashValue": 18500,
       "costBasisValue": 39853,
       "holdingCount": 5
+    },
+    {
+      "timestamp": "2026-03-15T21:44:53.886Z",
+      "granularity": "intraday",
+      "portfolioValue": 5373,
+      "holdingsValue": 5234,
+      "cashValue": 139,
+      "costBasisValue": 4926.84,
+      "holdingCount": 7
+    },
+    {
+      "timestamp": "2026-03-15T21:45:06.519Z",
+      "granularity": "intraday",
+      "portfolioValue": 4553,
+      "holdingsValue": 6103,
+      "cashValue": -1549.67,
+      "costBasisValue": 5981.58,
+      "holdingCount": 13
     }
   ],
   "daily": [
@@ -1884,13 +1902,13 @@
       "holdingCount": 7
     },
     {
-      "timestamp": "2026-03-15T20:42:24.971Z",
+      "timestamp": "2026-03-15T21:45:06.519Z",
       "granularity": "daily",
-      "portfolioValue": 50711,
-      "holdingsValue": 32211,
-      "cashValue": 18500,
-      "costBasisValue": 39853,
-      "holdingCount": 5
+      "portfolioValue": 4553,
+      "holdingsValue": 6103,
+      "cashValue": -1549.67,
+      "costBasisValue": 5981.58,
+      "holdingCount": 13
     }
   ]
 }

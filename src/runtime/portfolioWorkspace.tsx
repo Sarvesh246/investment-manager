@@ -891,6 +891,7 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
     initial.decisionAuditLog,
   );
   const rateLimitToastShownRef = useRef(false);
+  const investableCashRef = useRef(0);
 
   const accounting = useMemo(() => {
     if (transactions.length === 0) {
@@ -918,6 +919,7 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
   }, [baseHoldings, baseInvestableCash, ledgerBaseline, transactions]);
   const holdings = accounting.holdings;
   const investableCash = accounting.investableCash;
+  investableCashRef.current = investableCash;
 
   const provider = useMemo(() => new YahooPublicProvider(), []);
   const holdingSymbols = useMemo(
@@ -1544,10 +1546,6 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
     setBaseHoldings((current) => current.filter((holding) => holding.symbol !== normalized));
   }, []);
 
-  const setInvestableCash = useCallback((value: number) => {
-    setBaseInvestableCashState(value);
-  }, []);
-
   const addTransaction = useCallback(
     (
       input: Omit<PortfolioTransaction, 'id' | 'source'> & { source?: PortfolioTransaction['source'] },
@@ -1576,6 +1574,30 @@ export function PortfolioWorkspaceProvider({ children }: { children: React.React
       setLedgerBaseline((current) => current ?? createLedgerBaseline(baseHoldings, baseInvestableCash));
     },
     [baseHoldings, baseInvestableCash, fetchFullSymbol, liveSecurities],
+  );
+
+  const setInvestableCash = useCallback(
+    (value: number) => {
+      const num = Math.max(0, Number(value));
+      if (!Number.isFinite(num)) return;
+
+      if (transactions.length > 0) {
+        const current = investableCashRef.current;
+        const delta = Math.round((num - current) * 100) / 100;
+        if (delta !== 0) {
+          addTransaction({
+            kind: delta > 0 ? 'deposit' : 'withdrawal',
+            date: new Date().toISOString().slice(0, 10),
+            amount: Math.abs(delta),
+            note: 'Cash adjustment to match buying power',
+            source: 'manual',
+          });
+        }
+      } else {
+        setBaseInvestableCashState(num);
+      }
+    },
+    [transactions.length, addTransaction],
   );
 
   const removeTransaction = useCallback((id: string) => {

@@ -12,6 +12,9 @@ const storagePrefix = '/api/storage/portfolio-history'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const sharedHistoryPath = path.join(__dirname, 'data', 'runtime', 'portfolio-history.json')
+const githubPagesRepo = process.env.GITHUB_REPOSITORY?.split('/')[1]
+const githubPagesBase =
+  process.env.GITHUB_ACTIONS && githubPagesRepo ? `/${githubPagesRepo}/` : '/'
 
 function shouldForwardHeader(name: string) {
   return !['connection', 'content-encoding', 'content-length', 'host', 'transfer-encoding'].includes(
@@ -133,6 +136,7 @@ async function handleSharedStorageRequest(
 }
 
 export default defineConfig({
+  base: githubPagesBase,
   plugins: [
     react(),
     {

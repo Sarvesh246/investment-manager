@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { formatCurrency } from './shared';
 
 export function BuyingPowerEditor({
@@ -9,7 +10,18 @@ export function BuyingPowerEditor({
   onChange: (value: number) => void;
   className?: string;
 }) {
-  const inputValue = value > 0 ? String(value) : '';
+  const [localValue, setLocalValue] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+
+  const valueString = value > 0 ? String(value) : '';
+
+  useEffect(() => {
+    if (!isFocused) {
+      setLocalValue(valueString);
+    }
+  }, [valueString, isFocused]);
+
+  const displayValue = isFocused ? localValue : valueString;
 
   return (
     <div className={className ?? 'buying-power-editor'}>
@@ -19,8 +31,20 @@ export function BuyingPowerEditor({
           type="number"
           min={0}
           step={0.01}
-          value={inputValue}
-          onChange={(event) => onChange(Math.max(0, Number(event.target.value) || 0))}
+          value={displayValue}
+          onFocus={() => {
+            setIsFocused(true);
+            setLocalValue(valueString);
+          }}
+          onBlur={() => {
+            setIsFocused(false);
+            const num = Math.max(0, Number(localValue) || 0);
+            if (Number.isFinite(num)) {
+              onChange(num);
+            }
+            setLocalValue(valueString);
+          }}
+          onChange={(event) => setLocalValue(event.target.value)}
           placeholder="0"
         />
       </label>
@@ -30,7 +54,12 @@ export function BuyingPowerEditor({
             key={amount}
             type="button"
             className="pill-button"
-            onClick={() => onChange(Math.max(0, value + amount))}
+            onClick={() => {
+              const current = isFocused ? Math.max(0, Number(localValue) || 0) : value;
+              const next = Math.max(0, current + amount);
+              onChange(next);
+              setLocalValue(next > 0 ? String(next) : '');
+            }}
           >
             +{formatCurrency(amount)}
           </button>

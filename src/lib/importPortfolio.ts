@@ -69,7 +69,7 @@ function detectBrokerFormat(headers: string[]): BrokerCsvFormat {
   const normalizedHeaders = headers.map(normalizeHeader);
   const looksLikeRobinhood =
     normalizedHeaders.includes('instrument') &&
-    normalizedHeaders.includes('action') &&
+    (normalizedHeaders.includes('action') || normalizedHeaders.includes('transcode')) &&
     normalizedHeaders.includes('quantity') &&
     normalizedHeaders.includes('price');
   const looksLikeFidelity =
@@ -275,7 +275,7 @@ function transactionKindFromText(
     return 'unsupported' as const;
   }
 
-  if (normalized.includes('reinvest')) {
+  if (normalized.includes('reinvest') || normalized === 'rec') {
     return 'reinvest' as const;
   }
   if (normalized.includes('buy')) {
@@ -284,20 +284,32 @@ function transactionKindFromText(
   if (normalized.includes('sell')) {
     return 'sell' as const;
   }
-  if (normalized.includes('deposit') || normalized.includes('transferin') || normalized.includes('wirein')) {
+  if (normalized.includes('deposit') || normalized.includes('transferin') || normalized.includes('wirein') || normalized === 'ach') {
+    if (amount != null && amount < 0) {
+      return 'withdrawal' as const;
+    }
     return 'deposit' as const;
   }
   if (normalized.includes('withdraw') || normalized.includes('transferout') || normalized.includes('wireout')) {
     return 'withdrawal' as const;
   }
-  if (normalized.includes('dividend')) {
+  if (normalized.includes('dividend') || normalized === 'cdiv') {
     return 'dividend' as const;
   }
-  if (normalized.includes('split')) {
-    return 'unsupported' as const;
+  if (normalized.includes('split') || normalized === 'spl') {
+    return 'split' as const;
   }
-  if (normalized.includes('fee') || normalized.includes('commission')) {
+  if (normalized === 'scxl') {
+    return 'sell' as const;
+  }
+  if (normalized.includes('fee') || normalized.includes('commission') || normalized === 'dtax' || normalized === 'dfee' || normalized === 'afee') {
     return 'fee' as const;
+  }
+  if (normalized === 'int') {
+    return 'dividend' as const;
+  }
+  if (normalized === 'futswp') {
+    return amount != null && amount < 0 ? ('withdrawal' as const) : ('deposit' as const);
   }
   if (
     normalized.includes('transfer') ||
@@ -461,7 +473,7 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
   const format = detectBrokerFormat(headers);
   const body = rows.slice(1);
   const dateIndex = findColumn(headers, ['date', 'activitydate', 'tradedate', 'settlementdate', 'filledtime', 'executiondate']);
-  const actionIndex = findColumn(headers, ['kind', 'type', 'action', 'side', 'transactiontype', 'activity', 'activitytype']);
+  const actionIndex = findColumn(headers, ['kind', 'type', 'action', 'side', 'transactiontype', 'activity', 'activitytype', 'transcode']);
   const symbolIndex = findColumn(headers, ['symbol', 'ticker', 'instrument', 'stock']);
   const sharesIndex = findColumn(headers, ['shares', 'quantity', 'qty', 'filledquantity']);
   const priceIndex = findColumn(headers, ['price', 'fillprice', 'averageprice', 'filledprice', 'tradeprice']);
@@ -477,7 +489,7 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
   const transactions: PortfolioTransaction[] = [];
 
   body.forEach((row, index) => {
-    const rawAction = row[actionIndex] ?? '';
+    const rawAction = (row[actionIndex] ?? '').trim();
     const rawSymbol = symbolIndex >= 0 ? row[symbolIndex] : undefined;
     const symbol = extractTicker(rawSymbol);
     const sharesValue = sharesIndex >= 0 ? parseNumber(row[sharesIndex]) : undefined;
@@ -487,7 +499,16 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
     const fee = feeIndex >= 0 ? parseNumber(row[feeIndex]) : undefined;
     const note = noteIndex >= 0 ? row[noteIndex] : undefined;
     const date = normalizeDate(row[dateIndex]);
-    const normalizedKind = transactionKindFromText(rawAction, amount, shares, symbol);
+    let normalizedKind = transactionKindFromText(rawAction, amount, shares, symbol);
+
+    if (rawAction === '') {
+      if (amount != null && amount !== 0) {
+        normalizedKind = amount > 0 ? ('deposit' as const) : ('withdrawal' as const);
+        warnings.push(`Row ${index + 2}: no transaction type; inferred ${normalizedKind} from amount.`);
+      } else {
+        return;
+      }
+    }
 
     if (!normalizedKind) {
       warnings.push(`Skipped row ${index + 2} because the event type "${rawAction}" was not recognized.`);
@@ -499,6 +520,23 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
       return;
     }
 
+    if (normalizedKind === 'split') {
+      if (!symbol || shares == null || shares <= 0) {
+        warnings.push(`Skipped row ${index + 2}: split requires a symbol and a ratio (quantity).`);
+        return;
+      }
+      transactions.push({
+        id: createImportedId(source.toLowerCase().replace(/\s+/g, '-'), transactions.length),
+        kind: 'split',
+        date,
+        symbol,
+        splitRatio: shares,
+        note: note?.trim() || undefined,
+        source: 'system',
+      });
+      return;
+    }
+
     if ((normalizedKind === 'buy' || normalizedKind === 'sell' || normalizedKind === 'reinvest') && shares != null && price == null && amount != null && shares > 0) {
       price = Math.abs(amount) / shares;
     }
@@ -506,7 +544,7 @@ export function parseBrokerTransactionsCsv(text: string, source = 'Broker CSV') 
     if (normalizedKind === 'reinvest') {
       const reinvestAmount = absoluteAmount(amount) ?? ((shares ?? 0) * (price ?? 0));
       if (reinvestAmount <= 0 || !symbol || shares == null || price == null) {
-        warnings.push(`Skipped row ${index + 2} because the reinvestment data was incomplete.`);
+        warnings.push(`Skipped row ${index + 2}: REC/reinvest has no amount or price.`);
         return;
       }
 
