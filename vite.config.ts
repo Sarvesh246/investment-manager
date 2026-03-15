@@ -133,8 +133,7 @@ async function handleSharedStorageRequest(
 }
 
 export default defineConfig(({ command }) => ({
-  // GitHub Pages: relative base so the app works at https://<user>.github.io/<repo>/
-  base: command === 'build' ? './' : '/',
+  base: '/investment-manager/',
   plugins: [
     react(),
     {
